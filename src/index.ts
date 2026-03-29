@@ -1,5 +1,5 @@
 import { launchAndNavigate } from "./utils/browser";
-import { recordTabStops } from "./modules/traversal";
+import { recordTabStops, detectTraps } from "./modules/traversal";
 
 async function main() {
   const url = process.argv[2];
@@ -14,6 +14,7 @@ async function main() {
   const { browser, page } = await launchAndNavigate(url);
 
   try {
+    // M1-01: Forward traversal
     const forwardStops = await recordTabStops(page, "forward");
     console.log(`\nForward: ${forwardStops.length} tab stops`);
     for (const stop of forwardStops) {
@@ -22,21 +23,36 @@ async function main() {
       );
     }
 
+    // M1-01: Backward traversal
     const backwardStops = await recordTabStops(page, "backward");
     console.log(`\nBackward: ${backwardStops.length} tab stops`);
-    for (const stop of backwardStops) {
+
+    if (forwardStops.length === backwardStops.length) {
+      console.log("✓ Forward and backward counts match.");
+    } else {
       console.log(
-        `  [${stop.index}] <${stop.tag}> ${stop.selector}`
+        `✗ Count mismatch: forward=${forwardStops.length}, backward=${backwardStops.length}`
       );
     }
 
-    // Quick sanity check: both passes should find the same number of stops
-    if (forwardStops.length === backwardStops.length) {
-      console.log("\n✓ Forward and backward counts match.");
+    // M1-02: Trap detection
+    console.log("\nChecking for keyboard traps...");
+    const traps = await detectTraps(page, forwardStops);
+
+    if (traps.length === 0) {
+      console.log("✓ No keyboard traps detected.");
     } else {
-      console.log(
-        `\n✗ Count mismatch: forward=${forwardStops.length}, backward=${backwardStops.length}`
-      );
+      for (const trap of traps) {
+        console.log(
+          `✗ ${trap.isTrap ? "TRAP CONFIRMED" : "Suspected trap (escapable)"} at ${trap.location}`
+        );
+        console.log(`  Trapped elements: ${trap.trappedElements.join(", ")}`);
+        for (const attempt of trap.escapeAttempts) {
+          console.log(
+            `  ${attempt.escaped ? "✓" : "✗"} ${attempt.key}: ${attempt.escaped ? "escaped" : "still trapped"}`
+          );
+        }
+      }
     }
   } finally {
     await browser.close();
