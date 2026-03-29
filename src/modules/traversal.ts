@@ -6,6 +6,7 @@ import {
   EscapeAttempt,
   FocusOrderResult,
   FocusOrderViolation,
+  SkipLinkResult,
 } from "../types";
 
 /** Maximum tab presses before we give up (prevents infinite loops) */
@@ -287,6 +288,137 @@ async function tryEscape(
   }
 
   return attempts;
+}
+
+/**
+ * M1-04: Skip Link Verification
+ *
+ * Checks if one of the first few tab stops is a skip link (an anchor
+ * pointing to an in-page #id). If found, activates it and verifies
+ * that focus actually moves to the target element.
+ */
+export async function verifySkipLink(
+  page: Page,
+  stops: TabStop[]
+): Promise<SkipLinkResult> {
+  // Only check the first 3 tab stops — skip links should be very early
+  const candidates = stops.slice(0, 3);
+
+  for (const stop of candidates) {
+    const skipInfo = await page.evaluate((selector) => {
+      const el = document.querySelector(selector);
+      if (!el) return null;
+
+      // Check for an anchor with an in-page href
+      const anchor = el.tagName === "A" ? el : el.querySelector("a");
+      if (anchor) {
+        const href = anchor.getAttribute("href");
+        if (href && href.startsWith("#") && href.length > 1) {
+          const text = (anchor.textContent || "").toLowerCase().trim();
+          return { href, text, selector };
+        }
+      }
+
+      // Check shadow DOM for anchors
+      if (el.shadowRoot) {
+        const shadowAnchor = el.shadowRoot.querySelector("a");
+        if (shadowAnchor) {
+          const href = shadowAnchor.getAttribute("href");
+          if (href && href.startsWith("#") && href.length > 1) {
+            const text = (shadowAnchor.textContent || "").toLowerCase().trim();
+            return { href, text, selector };
+          }
+        }
+      }
+
+      // Detect by tag name — custom elements like <skip-to-content>
+      const tagName = el.tagName.toLowerCase();
+      if (
+        tagName.includes("skip") ||
+        tagName.includes("skipto")
+      ) {
+        return { href: null, text: tagName, selector };
+      }
+
+      // Check if the element itself has skip-related text
+      const elText = (el.textContent || "").toLowerCase().trim();
+      const isSkipText =
+        elText.includes("skip") ||
+        elText.includes("main content") ||
+        elText.includes("jump to");
+      if (isSkipText) {
+        return { href: null, text: elText, selector };
+      }
+
+      return null;
+    }, stop.selector);
+
+    if (!skipInfo) continue;
+
+    // We found something that looks like a skip link.
+    // Now activate it and check where focus goes.
+    await page.focus(stop.selector);
+    await page.waitForTimeout(50);
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(300);
+
+    const targetInfo = await page.evaluate((expectedHref) => {
+      const el = document.activeElement;
+
+      // Check if focus moved to a main content landmark
+      const mainEl = document.querySelector("main, [role='main']");
+
+      if (el && el !== document.body && el !== document.documentElement) {
+        const sel = el.id ? "#" + CSS.escape(el.id) : null;
+        // Focus landed on an element — check if it's inside main content
+        const isInMain = mainEl ? mainEl.contains(el) : false;
+        return {
+          reachable: true,
+          selector: sel,
+          isInMain,
+        };
+      }
+
+      // Focus didn't move to a specific element.
+      // Check if the skip link navigated via href.
+      if (expectedHref) {
+        const targetId = expectedHref.replace("#", "");
+        const target = document.getElementById(targetId);
+        if (target) {
+          const rect = target.getBoundingClientRect();
+          return {
+            reachable: rect.top >= -10 && rect.top <= 200,
+            selector: "#" + CSS.escape(targetId),
+            isInMain: mainEl ? mainEl.contains(target) : false,
+          };
+        }
+      }
+
+      // Last resort: check if main content scrolled near the top
+      if (mainEl) {
+        const rect = mainEl.getBoundingClientRect();
+        return {
+          reachable: rect.top >= -10 && rect.top <= 200,
+          selector: mainEl.id ? "#" + CSS.escape(mainEl.id) : "main",
+          isInMain: true,
+        };
+      }
+
+      return { reachable: false, selector: null, isInMain: false };
+    }, skipInfo.href);
+
+    return {
+      exists: true,
+      targetReachable: targetInfo.reachable,
+      targetSelector: targetInfo.selector,
+    };
+  }
+
+  return {
+    exists: false,
+    targetReachable: false,
+    targetSelector: null,
+  };
 }
 
 /**

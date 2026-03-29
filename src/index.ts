@@ -4,6 +4,7 @@ import {
   recordTabStops,
   detectTraps,
   analyzeFocusOrder,
+  verifySkipLink,
 } from "./modules/traversal";
 
 async function main() {
@@ -82,6 +83,21 @@ async function main() {
           );
         }
       }
+    }
+    // M1-04: Skip link verification
+    console.log("\nChecking for skip link...");
+    const skipLink = await verifySkipLink(page, forwardStops);
+
+    if (!skipLink.exists) {
+      console.log("  ✗ No skip link found.");
+    } else if (skipLink.targetReachable) {
+      console.log(
+        `  ✓ Skip link found and works (target: ${skipLink.targetSelector})`
+      );
+    } else {
+      console.log(
+        `  ⚠ Skip link found but target is not reachable (target: ${skipLink.targetSelector})`
+      );
     }
   } finally {
     await browser.close();
