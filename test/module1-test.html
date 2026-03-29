@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Module 1 Test Page</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; color: #333; }
+
+    /* M1-05: Sticky header that will obscure some content */
+    .sticky-header {
+      position: sticky;
+      top: 0;
+      background: #1a1a2e;
+      color: white;
+      padding: 12px 20px;
+      z-index: 100;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+    .sticky-header a { color: #8be9fd; }
+
+    /* M1-04: Skip link (hidden until focused) */
+    .skip-link {
+      position: absolute;
+      top: -40px;
+      left: 0;
+      background: #f1fa8c;
+      color: #1a1a2e;
+      padding: 8px 16px;
+      z-index: 200;
+      text-decoration: none;
+      font-weight: bold;
+    }
+    .skip-link:focus { top: 0; }
+
+    main { padding: 20px; max-width: 800px; margin: 0 auto; }
+    h1 { margin: 20px 0; }
+    h2 { margin: 24px 0 12px; border-bottom: 2px solid #ddd; padding-bottom: 4px; }
+    p { margin: 8px 0; line-height: 1.5; }
+    section { margin: 20px 0; }
+
+    /* M1-03: CSS grid that creates visual order different from DOM order */
+    .reordered-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin: 12px 0;
+    }
+    .reordered-grid .item-a { order: 2; }
+    .reordered-grid .item-b { order: 1; }
+    .reordered-grid .item-c { order: 4; }
+    .reordered-grid .item-d { order: 3; }
+    .reordered-grid a {
+      display: block;
+      padding: 16px;
+      background: #e8e8e8;
+      text-decoration: none;
+      color: #333;
+      border-radius: 4px;
+    }
+
+    /* M1-03: Element with positive tabindex (anti-pattern) */
+    .tabindex-demo button {
+      padding: 8px 16px;
+      margin: 4px;
+      cursor: pointer;
+    }
+
+    /* M1-02: Trap zone */
+    .trap-zone {
+      background: #fff3f3;
+      border: 2px solid #e74c3c;
+      padding: 16px;
+      margin: 12px 0;
+      border-radius: 4px;
+    }
+    .trap-zone button {
+      padding: 8px 16px;
+      margin: 4px;
+    }
+
+    /* M1-05: Fixed cookie banner */
+    .cookie-banner {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #2c3e50;
+      color: white;
+      padding: 16px 20px;
+      z-index: 100;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: center;
+    }
+    .cookie-banner button {
+      padding: 8px 16px;
+      cursor: pointer;
+    }
+
+    /* Content near the bottom that the cookie banner will obscure */
+    .bottom-content {
+      margin-bottom: 20px;
+    }
+
+    /* Normal links section */
+    nav ul {
+      list-style: none;
+      display: flex;
+      gap: 12px;
+      margin: 12px 0;
+    }
+    nav a {
+      padding: 8px 12px;
+      background: #f0f0f0;
+      text-decoration: none;
+      color: #333;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- M1-04: Skip link -->
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+
+  <!-- M1-05: Sticky header -->
+  <div class="sticky-header">
+    <a href="#">Home</a>
+    <a href="#">About</a>
+    <a href="#">Contact</a>
+  </div>
+
+  <main id="main-content">
+    <h1>Module 1 Test Page</h1>
+    <p>This page tests all 5 checks in Module 1 of the keyboard accessibility tool.</p>
+
+    <!-- M1-01: Normal navigation (basic tab stops) -->
+    <section>
+      <h2>M1-01: Basic Tab Stops</h2>
+      <nav>
+        <ul>
+          <li><a href="#">Link 1</a></li>
+          <li><a href="#">Link 2</a></li>
+          <li><a href="#">Link 3</a></li>
+        </ul>
+      </nav>
+      <button>A button</button>
+      <input type="text" placeholder="A text input">
+    </section>
+
+    <!-- M1-02: Keyboard trap -->
+    <section>
+      <h2>M1-02: Keyboard Trap</h2>
+      <p>The buttons below trap keyboard focus.</p>
+      <div class="trap-zone">
+        <button id="trap-1">Trapped Button 1</button>
+        <button id="trap-2">Trapped Button 2</button>
+      </div>
+      <a href="#">This link should be unreachable due to the trap above</a>
+    </section>
+
+    <!-- M1-03: Focus order vs visual layout -->
+    <section>
+      <h2>M1-03: Reordered Grid (CSS order)</h2>
+      <p>These links are visually reordered with CSS grid, so tab order differs from visual order.</p>
+      <div class="reordered-grid">
+        <a href="#" class="item-a">A (DOM first, visually second)</a>
+        <a href="#" class="item-b">B (DOM second, visually first)</a>
+        <a href="#" class="item-c">C (DOM third, visually fourth)</a>
+        <a href="#" class="item-d">D (DOM fourth, visually third)</a>
+      </div>
+    </section>
+
+    <!-- M1-03: Positive tabindex -->
+    <section>
+      <h2>M1-03: Positive tabindex (anti-pattern)</h2>
+      <div class="tabindex-demo">
+        <button tabindex="5">tabindex=5 (should be flagged)</button>
+        <button tabindex="10">tabindex=10 (should be flagged)</button>
+        <button>Normal button (no tabindex)</button>
+      </div>
+    </section>
+
+    <!-- M1-05: Content that will be partially obscured by sticky header when scrolled -->
+    <section>
+      <h2>M1-05: Content Near Bottom</h2>
+      <p>Lots of filler content to push the links below toward the cookie banner.</p>
+      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+      <div class="bottom-content">
+        <a href="#">Bottom link 1 (may be obscured by cookie banner)</a><br><br>
+        <a href="#">Bottom link 2 (may be obscured by cookie banner)</a><br><br>
+        <a href="#">Bottom link 3 (may be obscured by cookie banner)</a>
+      </div>
+    </section>
+  </main>
+
+  <!-- M1-05: Fixed cookie banner -->
+  <div class="cookie-banner">
+    <span>This site uses cookies.</span>
+    <button id="cookie-accept">Accept</button>
+    <button id="cookie-reject">Reject</button>
+  </div>
+
+  <!-- M1-02: Trap script -->
+  <script>
+    const trap1 = document.getElementById('trap-1');
+    const trap2 = document.getElementById('trap-2');
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Tab') {
+        const active = document.activeElement;
+        if (!e.shiftKey && active === trap2) {
+          e.preventDefault();
+          trap1.focus();
+        }
+        if (e.shiftKey && active === trap1) {
+          e.preventDefault();
+          trap2.focus();
+        }
+      }
+    });
+  </script>
+
+</body>
+</html>
