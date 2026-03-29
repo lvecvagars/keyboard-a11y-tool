@@ -5,6 +5,7 @@ import {
   detectTraps,
   analyzeFocusOrder,
   verifySkipLink,
+  detectObscured,
 } from "./modules/traversal";
 
 async function main() {
@@ -98,6 +99,30 @@ async function main() {
       console.log(
         `  ⚠ Skip link found but target is not reachable (target: ${skipLink.targetSelector})`
       );
+    }
+    // M1-05: Focus not obscured detection
+    console.log("\nChecking for obscured focus...");
+    const obscured = await detectObscured(page, forwardStops);
+
+    let obscuredCount = 0;
+    let partialCount = 0;
+    for (const [idx, result] of obscured) {
+      if (result.fullyObscured) {
+        obscuredCount++;
+        console.log(
+          `  ✗ [${idx}] ${forwardStops[idx].selector} — fully obscured by ${result.obscuringElement}`
+        );
+      } else if (result.partiallyObscured) {
+        partialCount++;
+        console.log(
+          `  ⚠ [${idx}] ${forwardStops[idx].selector} — ${result.overlapPercent}% obscured by ${result.obscuringElement}`
+        );
+      }
+    }
+    if (obscuredCount === 0 && partialCount === 0) {
+      console.log("  ✓ No focused elements are obscured.");
+    } else {
+      console.log(`  ${obscuredCount} fully obscured, ${partialCount} partially obscured.`);
     }
   } finally {
     await browser.close();

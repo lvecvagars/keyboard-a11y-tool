@@ -7,6 +7,7 @@ import {
   FocusOrderResult,
   FocusOrderViolation,
   SkipLinkResult,
+  ObscuredResult,
 } from "../types";
 
 /** Maximum tab presses before we give up (prevents infinite loops) */
@@ -499,4 +500,115 @@ export function analyzeFocusOrder(stops: TabStop[]): FocusOrderResult {
     correlationScore: Math.round(correlationScore * 1000) / 1000,
     violations,
   };
+}
+
+/**
+ * M1-05: Focus Not Obscured Detection
+ *
+ * For each tab stop, checks whether it is obscured by fixed or sticky
+ * positioned elements (headers, footers, cookie banners, etc.).
+ * Also checks whether the focused element is within the viewport.
+ */
+export async function detectObscured(
+  page: Page,
+  stops: TabStop[]
+): Promise<Map<number, ObscuredResult>> {
+  const results = new Map<number, ObscuredResult>();
+  const viewportHeight = 720;
+  const viewportWidth = 1280;
+
+  for (const stop of stops) {
+    try {
+      await page.focus(stop.selector);
+    } catch {
+      results.set(stop.index, {
+        fullyObscured: false,
+        partiallyObscured: false,
+        overlapPercent: 0,
+        obscuringElement: null,
+        focusedInViewport: false,
+      });
+      continue;
+    }
+
+    await page.waitForTimeout(30);
+
+    // Check if the focused element is actually visually obscured
+    // by using elementFromPoint at the center of the element.
+    // This lets the browser's own rendering engine tell us what's on top.
+    const data = await page.evaluate(() => {
+      const el = document.activeElement;
+      if (!el) return null;
+
+      const fRect = el.getBoundingClientRect();
+      const focusRect = { x: fRect.x, y: fRect.y, w: fRect.width, h: fRect.height };
+
+      // Check multiple points on the element to determine overlap percentage
+      const checkPoints = [
+        { x: fRect.x + fRect.width / 2, y: fRect.y + fRect.height / 2 },  // center
+        { x: fRect.x + 2, y: fRect.y + 2 },                                // top-left
+        { x: fRect.x + fRect.width - 2, y: fRect.y + 2 },                  // top-right
+        { x: fRect.x + 2, y: fRect.y + fRect.height - 2 },                 // bottom-left
+        { x: fRect.x + fRect.width - 2, y: fRect.y + fRect.height - 2 },   // bottom-right
+      ].filter(p => p.x >= 0 && p.y >= 0);
+
+      let obscuredPoints = 0;
+      let obscurerSelector: string | null = null;
+
+      for (const point of checkPoints) {
+        const topEl = document.elementFromPoint(point.x, point.y);
+        if (!topEl) continue;
+
+        // If the top element is the focused element itself, or a
+        // descendant/ancestor of it, the point is not obscured
+        if (topEl === el || el.contains(topEl) || topEl.contains(el)) {
+          continue;
+        }
+
+        // This point is covered by something else
+        obscuredPoints++;
+        if (!obscurerSelector) {
+          obscurerSelector = topEl.id
+            ? "#" + CSS.escape(topEl.id)
+            : topEl.tagName.toLowerCase();
+        }
+      }
+
+      const totalPoints = checkPoints.length;
+      const overlapPercent = totalPoints > 0
+        ? Math.round((obscuredPoints / totalPoints) * 100)
+        : 0;
+
+      return { focusRect, overlapPercent, obscurerSelector };
+    });
+
+    if (!data) {
+      results.set(stop.index, {
+        fullyObscured: false,
+        partiallyObscured: false,
+        overlapPercent: 0,
+        obscuringElement: null,
+        focusedInViewport: false,
+      });
+      continue;
+    }
+
+    const { focusRect, overlapPercent, obscurerSelector } = data;
+
+    const focusedInViewport =
+      focusRect.y + focusRect.h > 0 &&
+      focusRect.y < viewportHeight &&
+      focusRect.x + focusRect.w > 0 &&
+      focusRect.x < viewportWidth;
+
+    results.set(stop.index, {
+      fullyObscured: overlapPercent >= 100,
+      partiallyObscured: overlapPercent > 0 && overlapPercent < 100,
+      overlapPercent,
+      obscuringElement: overlapPercent > 0 ? obscurerSelector : null,
+      focusedInViewport,
+    });
+  }
+
+  return results;
 }
