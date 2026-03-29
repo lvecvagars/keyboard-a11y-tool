@@ -1,5 +1,12 @@
 import { Page } from "playwright";
-import { TabStop, BoundingBox, TrapResult, EscapeAttempt } from "../types";
+import {
+  TabStop,
+  BoundingBox,
+  TrapResult,
+  EscapeAttempt,
+  FocusOrderResult,
+  FocusOrderViolation,
+} from "../types";
 
 /** Maximum tab presses before we give up (prevents infinite loops) */
 const MAX_TAB_PRESSES = 500;
@@ -7,7 +14,73 @@ const MAX_TAB_PRESSES = 500;
 type Direction = "forward" | "backward";
 
 /** Keys to try when attempting to escape a suspected trap */
-const ESCAPE_KEYS = ["Escape", "Shift+Tab", "ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft"];
+const ESCAPE_KEYS = [
+  "Escape",
+  "Shift+Tab",
+  "ArrowDown",
+  "ArrowUp",
+  "ArrowRight",
+  "ArrowLeft",
+];
+
+/**
+ * Helper used inside page.evaluate() calls to build a unique CSS selector.
+ * Defined once here, called from multiple evaluate callbacks.
+ */
+function buildSelectorInPage(el: Element): string {
+  if (el.id) {
+    return `#${CSS.escape(el.id)}`;
+  }
+  const parts: string[] = [];
+  let current: Element | null = el;
+  while (current && current !== document.documentElement) {
+    let part = current.tagName.toLowerCase();
+    if (current.parentElement) {
+      const siblings = Array.from(current.parentElement.children).filter(
+        (s) => s.tagName === current!.tagName
+      );
+      if (siblings.length > 1) {
+        const idx = siblings.indexOf(current) + 1;
+        part += `:nth-of-type(${idx})`;
+      }
+    }
+    parts.unshift(part);
+    current = current.parentElement;
+  }
+  return parts.join(" > ");
+}
+
+/**
+ * Expose the selector builder inside the browser context.
+ * Call this once after navigation, before running any checks.
+ */
+export async function injectHelpers(page: Page): Promise<void> {
+  await page.exposeFunction("__buildSelector", async () => "");
+  await page.evaluate(() => {
+    (window as any).__getSelector = function (el: Element): string {
+      if (el.id) {
+        return "#" + CSS.escape(el.id);
+      }
+      const parts: string[] = [];
+      let current: Element | null = el;
+      while (current && current !== document.documentElement) {
+        let part = current.tagName.toLowerCase();
+        if (current.parentElement) {
+          const siblings = Array.from(current.parentElement.children).filter(
+            (s) => s.tagName === current!.tagName
+          );
+          if (siblings.length > 1) {
+            const idx = siblings.indexOf(current) + 1;
+            part += ":nth-of-type(" + idx + ")";
+          }
+        }
+        parts.unshift(part);
+        current = current.parentElement;
+      }
+      return parts.join(" > ");
+    };
+  });
+}
 
 /**
  * M1-01: Full Tab Sequence Recording
@@ -23,10 +96,6 @@ export async function recordTabStops(
   const stops: TabStop[] = [];
   const startTime = Date.now();
 
-  // Move focus to the very beginning of the page.
-  // Clicking the body ensures we start from a clean state —
-  // no element is focused yet, so the first Tab press lands
-  // on the page's first focusable element.
   await page.evaluate(() => {
     (document.activeElement as HTMLElement)?.blur();
     document.body.focus();
@@ -35,53 +104,22 @@ export async function recordTabStops(
   let firstSelector: string | null = null;
 
   for (let i = 0; i < MAX_TAB_PRESSES; i++) {
-    // Press Tab or Shift+Tab
     if (direction === "forward") {
       await page.keyboard.press("Tab");
     } else {
       await page.keyboard.press("Shift+Tab");
     }
 
-    // Small wait for focus styles / transitions to settle
     await page.waitForTimeout(50);
 
-    // Extract info about the currently focused element
     const info = await page.evaluate(() => {
       const el = document.activeElement;
-
-      // If focus landed on <body> or <html>, there's nothing useful to record
       if (!el || el === document.body || el === document.documentElement) {
         return null;
       }
 
-      // Build a unique CSS selector for this element.
-      // We try id first, then fall back to a path-based selector.
-      function getSelector(element: Element): string {
-        if (element.id) {
-          return `#${CSS.escape(element.id)}`;
-        }
+      const selector = (window as any).__getSelector(el);
 
-        const parts: string[] = [];
-        let current: Element | null = element;
-        while (current && current !== document.documentElement) {
-          let part = current.tagName.toLowerCase();
-          if (current.parentElement) {
-            const siblings = Array.from(current.parentElement.children).filter(
-              (s) => s.tagName === current!.tagName
-            );
-            if (siblings.length > 1) {
-              const idx = siblings.indexOf(current) + 1;
-              part += `:nth-of-type(${idx})`;
-            }
-          }
-          parts.unshift(part);
-          current = current.parentElement;
-        }
-        return parts.join(" > ");
-      }
-
-      // Determine DOM source order: count how many elements precede
-      // this one in a document-order traversal.
       const allElements = document.querySelectorAll("*");
       let domOrder = 0;
       for (let j = 0; j < allElements.length; j++) {
@@ -94,7 +132,7 @@ export async function recordTabStops(
       const rect = el.getBoundingClientRect();
 
       return {
-        selector: getSelector(el),
+        selector,
         tag: el.tagName.toLowerCase(),
         role: el.getAttribute("role"),
         tabindex: el.hasAttribute("tabindex")
@@ -110,12 +148,10 @@ export async function recordTabStops(
       };
     });
 
-    // Focus landed on body/html — might mean we've gone past all elements
     if (!info) {
       continue;
     }
 
-    // Cycle detection: if we've returned to the first focused element, stop
     if (firstSelector === null) {
       firstSelector = info.selector;
     } else if (info.selector === firstSelector) {
@@ -140,13 +176,8 @@ export async function recordTabStops(
 /**
  * M1-02: Keyboard Trap Detection
  *
- * Analyzes a recorded tab stop sequence for repeating cycles —
- * a small set of elements visited over and over. If a suspected
- * trap is found, navigates to it and attempts escape keys.
- *
- * Should be called with the forward tab stops from recordTabStops.
- * If recordTabStops hit MAX_TAB_PRESSES without cycling, this is
- * especially likely to find a trap.
+ * Analyzes a recorded tab stop sequence for repeating cycles.
+ * If a suspected trap is found, navigates to it and attempts escape keys.
  */
 export async function detectTraps(
   page: Page,
@@ -154,23 +185,18 @@ export async function detectTraps(
 ): Promise<TrapResult[]> {
   const traps: TrapResult[] = [];
 
-  // Nothing to analyze if the page has very few stops
   if (stops.length < 10) {
     return traps;
   }
 
-  // Use a sliding window to find repeating patterns.
-  // We look at windows of N selectors and check whether
-  // the unique set is suspiciously small.
   const windowSize = 10;
+  const isSubsetOf = (a: string[], b: string[]) =>
+    a.every((sel) => b.includes(sel));
 
   for (let i = 0; i <= stops.length - windowSize; i++) {
     const window = stops.slice(i, i + windowSize);
     const uniqueSelectors = new Set(window.map((s) => s.selector));
 
-    // Fewer than 4 unique elements in a window of 10 is suspicious.
-    // But we need to confirm it repeats — check that the pattern
-    // continues for at least 3 full cycles of the unique set.
     if (uniqueSelectors.size >= 4) {
       continue;
     }
@@ -178,36 +204,28 @@ export async function detectTraps(
     const cycleLength = uniqueSelectors.size;
     const requiredLength = cycleLength * 3;
 
-    // Make sure we have enough stops ahead to confirm 3 full cycles
     if (i + requiredLength > stops.length) {
       continue;
     }
 
-    // Verify that the same small set repeats for 3 full cycles
     const extendedWindow = stops.slice(i, i + requiredLength);
     const extendedUnique = new Set(extendedWindow.map((s) => s.selector));
 
     if (extendedUnique.size > cycleLength) {
-      // New elements appeared — not a real cycle
       continue;
     }
 
-    // We have a suspected trap. Check if we've already flagged
-    // these same elements or a superset containing them.
     const trappedSet = Array.from(uniqueSelectors).sort();
-    const isSubsetOf = (a: string[], b: string[]) =>
-      a.every((sel) => b.includes(sel));
 
-    // Remove any previously reported trap that is a superset of this
-    // smaller, more precise trapped set
     for (let j = traps.length - 1; j >= 0; j--) {
-      if (isSubsetOf(trappedSet, traps[j].trappedElements) &&
-          traps[j].trappedElements.length > trappedSet.length) {
+      if (
+        isSubsetOf(trappedSet, traps[j].trappedElements) &&
+        traps[j].trappedElements.length > trappedSet.length
+      ) {
         traps.splice(j, 1);
       }
     }
 
-    // Skip if this exact set or a subset was already reported
     const alreadyReported = traps.some((t) => {
       const existing = [...t.trappedElements].sort();
       return isSubsetOf(existing, trappedSet);
@@ -217,9 +235,7 @@ export async function detectTraps(
       continue;
     }
 
-    // Now navigate to the trapped element and try to escape
     const escapeAttempts = await tryEscape(page, trappedSet);
-
     const escaped = escapeAttempts.some((a) => a.escaped);
 
     traps.push({
@@ -229,7 +245,6 @@ export async function detectTraps(
       location: stops[i].selector,
     });
 
-    // Skip past this trapped region to avoid redundant detection
     i += requiredLength - 1;
   }
 
@@ -247,54 +262,24 @@ async function tryEscape(
   const attempts: EscapeAttempt[] = [];
 
   for (const key of ESCAPE_KEYS) {
-    // First, focus one of the trapped elements so we start inside the trap
     try {
       await page.focus(trappedSelectors[0]);
     } catch {
-      // Element might not be focusable directly — skip escape testing
       return attempts;
     }
 
     await page.waitForTimeout(50);
-
-    // Press the escape key
     await page.keyboard.press(key);
     await page.waitForTimeout(50);
 
-    // Check where focus landed
     const currentSelector = await page.evaluate(() => {
       const el = document.activeElement;
       if (!el || el === document.body || el === document.documentElement) {
         return null;
       }
-
-      function getSelector(element: Element): string {
-        if (element.id) {
-          return `#${CSS.escape(element.id)}`;
-        }
-        const parts: string[] = [];
-        let current: Element | null = element;
-        while (current && current !== document.documentElement) {
-          let part = current.tagName.toLowerCase();
-          if (current.parentElement) {
-            const siblings = Array.from(
-              current.parentElement.children
-            ).filter((s) => s.tagName === current!.tagName);
-            if (siblings.length > 1) {
-              const idx = siblings.indexOf(current) + 1;
-              part += `:nth-of-type(${idx})`;
-            }
-          }
-          parts.unshift(part);
-          current = current.parentElement;
-        }
-        return parts.join(" > ");
-      }
-
-      return getSelector(el);
+      return (window as any).__getSelector(el);
     });
 
-    // Did focus escape the trapped set?
     const escaped =
       currentSelector !== null && !trappedSelectors.includes(currentSelector);
 
@@ -302,4 +287,84 @@ async function tryEscape(
   }
 
   return attempts;
+}
+
+/**
+ * M1-03: Focus Order vs. Visual Layout Analysis
+ *
+ * Compares the tab sequence order against the visual reading order
+ * derived from element bounding boxes (top-to-bottom, left-to-right).
+ */
+export function analyzeFocusOrder(stops: TabStop[]): FocusOrderResult {
+  if (stops.length < 2) {
+    return { correlationScore: 1, violations: [] };
+  }
+
+  // Elements within this vertical distance are considered on the same row
+  const ROW_THRESHOLD = 30;
+
+  const visualOrder = [...stops].sort((a, b) => {
+    const ay = a.boundingBox.y;
+    const by = b.boundingBox.y;
+    if (Math.abs(ay - by) <= ROW_THRESHOLD) {
+      return a.boundingBox.x - b.boundingBox.x;
+    }
+    return ay - by;
+  });
+
+  // Map each stop to its rank in visual order
+  const visualRank = new Map<string, number>();
+  visualOrder.forEach((stop, rank) => {
+    visualRank.set(stop.selector, rank);
+  });
+
+  // Spearman rank correlation: rho = 1 - (6 * sum(d^2)) / (n * (n^2 - 1))
+  const n = stops.length;
+  let sumDSquared = 0;
+
+  for (const stop of stops) {
+    const tabRank = stop.index;
+    const visRank = visualRank.get(stop.selector) ?? tabRank;
+    const d = tabRank - visRank;
+    sumDSquared += d * d;
+  }
+
+  const correlationScore =
+    n > 1 ? 1 - (6 * sumDSquared) / (n * (n * n - 1)) : 1;
+
+  // Detect individual violations
+  const JUMP_THRESHOLD = 200;
+  const violations: FocusOrderViolation[] = [];
+
+  for (let i = 1; i < stops.length; i++) {
+    const prev = stops[i - 1];
+    const curr = stops[i];
+    const dy = curr.boundingBox.y - prev.boundingBox.y;
+
+    if (dy < -JUMP_THRESHOLD) {
+      violations.push({
+        fromElement: prev.selector,
+        toElement: curr.selector,
+        jumpDistance: Math.abs(dy),
+        direction: "backward-vertical",
+      });
+    }
+  }
+
+  // Flag tabindex > 0 as a separate anti-pattern warning
+  for (const stop of stops) {
+    if (stop.tabindex !== null && stop.tabindex > 0) {
+      violations.push({
+        fromElement: stop.selector,
+        toElement: stop.selector,
+        jumpDistance: 0,
+        direction: "other",
+      });
+    }
+  }
+
+  return {
+    correlationScore: Math.round(correlationScore * 1000) / 1000,
+    violations,
+  };
 }
