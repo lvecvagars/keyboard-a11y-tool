@@ -17,7 +17,15 @@ export async function launchAndNavigate(url: string): Promise<BrowserContext> {
   });
   const page = await context.newPage();
 
-  await page.goto(url, { waitUntil: "networkidle" });
+  try {
+    await page.goto(url, { waitUntil: "networkidle", timeout: 15000 });
+  } catch {
+    // networkidle timed out — page likely has persistent connections
+    // (ads, analytics, websockets). Fall back to domcontentloaded
+    // and give scripts a moment to finish.
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await page.waitForTimeout(2000);
+  }
 
   return { browser, page };
 }
