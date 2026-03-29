@@ -1,0 +1,27 @@
+{
+  "name": "keyboard-a11y-tool",
+  "version": "1.0.0",
+  "description": "Automated keyboard accessibility evaluation tool for WCAG 2.2 compliance",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lvecvagars/keyboard-a11y-tool.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/lvecvagars/keyboard-a11y-tool/issues"
+  },
+  "homepage": "https://github.com/lvecvagars/keyboard-a11y-tool#readme",
+  "dependencies": {
+    "@types/node": "^25.5.0",
+    "playwright": "^1.58.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.2"
+  }
+}
