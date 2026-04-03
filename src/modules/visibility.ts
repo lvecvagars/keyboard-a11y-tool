@@ -3,7 +3,7 @@ import { PNG } from "pngjs";
 import pixelmatch from "pixelmatch";
 import * as fs from "fs";
 import * as path from "path";
-import { IndicatorExistence, CSSFocusStyle, ComputedStyleChange } from "../types";
+import { IndicatorExistence, CSSFocusStyle, ComputedStyleChange, OutlineState } from "../types";
 
 // ---- Configuration ----
 
@@ -201,7 +201,7 @@ async function readUnfocusedStyles(
 function compareStyles(
   focused: Record<string, string>,
   unfocused: Record<string, string>
-): { computedChanges: ComputedStyleChange[]; outlineRemoved: boolean; replacementProperties: string[] } {
+): { computedChanges: ComputedStyleChange[]; outlineState: OutlineState; replacementProperties: string[] } {
   const computedChanges: ComputedStyleChange[] = [];
 
   for (const prop of FOCUS_STYLE_PROPERTIES) {
@@ -212,19 +212,15 @@ function compareStyles(
     }
   }
 
-  // Check if outline was removed on focus (outline becomes "none" or
-  // thinner than unfocused state — unusual but possible with :focus overrides)
-  // More commonly: unfocused has a default outline, focused sets outline: none.
-  // But the typical failure is: the browser default outline is suppressed by
-  // a CSS rule. In that case both states show outline: none and there's no
-  // computed change at all — which is caught by the stylesheet scan (Part B).
-  //
-  // What we detect HERE is: if the focused state has outline none/0 and the
-  // unfocused state had a visible outline, something explicitly removed it.
   const focusedOutlineWidth = focused["outlineWidth"] ?? "";
   const focusedOutlineStyle = focused["outlineStyle"] ?? "";
-  const outlineGone =
+  const unfocusedOutlineWidth = unfocused["outlineWidth"] ?? "";
+  const unfocusedOutlineStyle = unfocused["outlineStyle"] ?? "";
+
+  const focusedOutlineGone =
     focusedOutlineStyle === "none" || focusedOutlineWidth === "0px";
+  const unfocusedOutlineGone =
+    unfocusedOutlineStyle === "none" || unfocusedOutlineWidth === "0px";
 
   // Check if any replacement property changed between states
   const replacements: string[] = [];
@@ -236,10 +232,23 @@ function compareStyles(
     }
   }
 
-  // outlineRemoved = outline is gone on focus AND no replacement stepped in
-  const outlineRemoved = outlineGone && replacements.length === 0;
+  // Determine outline state:
+  // - "removed": outline was present unfocused but gone on focus (active suppression)
+  // - "never":   outline is none in both states and no replacement exists (missing focus style)
+  // - "present": outline exists on focus (normal behavior)
+  // - "replaced": outline is gone on focus but a replacement property compensates
+  let outlineState: OutlineState;
+  if (!focusedOutlineGone) {
+    outlineState = "present";
+  } else if (!unfocusedOutlineGone) {
+    // Had outline unfocused, lost it on focus — active suppression
+    outlineState = replacements.length > 0 ? "replaced" : "removed";
+  } else {
+    // No outline in either state
+    outlineState = replacements.length > 0 ? "replaced" : "never";
+  }
 
-  return { computedChanges, outlineRemoved, replacementProperties: replacements };
+  return { computedChanges, outlineState, replacementProperties: replacements };
 }
 
 /**
@@ -490,13 +499,13 @@ export async function analyzeIndicators(
     if (focusedStyles && unfocusedStyles) {
       const comparison = compareStyles(focusedStyles, unfocusedStyles);
       cssAnalysis = {
-        outlineRemoved: comparison.outlineRemoved,
+        outlineState: comparison.outlineState,
         replacementProperties: comparison.replacementProperties,
         computedChanges: comparison.computedChanges,
       };
     } else {
       cssAnalysis = {
-        outlineRemoved: false,
+        outlineState: "never",
         replacementProperties: [],
         computedChanges: [],
       };

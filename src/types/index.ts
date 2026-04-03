@@ -119,10 +119,19 @@ export interface IndicatorExistence {
   diffImagePath: string;
 }
 
+/**
+ * Outline state on focus, derived by comparing focused vs unfocused computed styles.
+ * - "present":  outline exists on focus (normal/good)
+ * - "replaced": outline is gone but a replacement property compensates (boxShadow, border, etc.)
+ * - "removed":  outline was present unfocused but actively suppressed on focus, no replacement
+ * - "never":    outline is none in both states and no replacement exists (missing focus style)
+ */
+export type OutlineState = "present" | "replaced" | "removed" | "never";
+
 /** M2-02: CSS focus style analysis */
 export interface CSSFocusStyle {
-  /** Whether outline: none / outline: 0 was found without a replacement */
-  outlineRemoved: boolean;
+  /** Outline state derived from comparing focused vs unfocused computed styles */
+  outlineState: OutlineState;
   /** CSS properties that changed to compensate (e.g. boxShadow, border) */
   replacementProperties: string[];
   /** Raw computed style differences between focused and unfocused states */

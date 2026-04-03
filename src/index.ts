@@ -209,6 +209,7 @@ async function main() {
     let noIndicatorCount = 0;
     let hasIndicatorCount = 0;
     let outlineRemovedCount = 0;
+    let outlineNeverCount = 0;
     let styleChangeCount = 0;
 
     for (const result of indicatorResults) {
@@ -231,11 +232,14 @@ async function main() {
         ? `${changeCount} CSS change(s): ${result.cssAnalysis.computedChanges.map(c => c.property).join(", ")}`
         : "no CSS changes";
 
-      const outlineWarning = result.cssAnalysis.outlineRemoved
-        ? " ⚠ outline removed, no replacement!"
-        : "";
-
-      if (result.cssAnalysis.outlineRemoved) outlineRemovedCount++;
+      let outlineWarning = "";
+      if (result.cssAnalysis.outlineState === "removed") {
+        outlineWarning = " ⚠ outline actively removed on focus, no replacement!";
+        outlineRemovedCount++;
+      } else if (result.cssAnalysis.outlineState === "never") {
+        outlineWarning = " ⚠ no outline in either state, no replacement";
+        outlineNeverCount++;
+      }
 
       console.log(
         `  <${result.tag}> ${result.selector}`
@@ -252,7 +256,7 @@ async function main() {
       `\n  M2-01 Summary: ${hasIndicatorCount} with indicator, ${noIndicatorCount} without`
     );
     console.log(
-      `  M2-02 Summary: ${styleChangeCount} with CSS changes, ${outlineRemovedCount} with outline removed (no replacement)`
+      `  M2-02 Summary: ${styleChangeCount} with CSS changes, ${outlineRemovedCount} outline actively removed, ${outlineNeverCount} outline never present`
     );
     console.log(`  Diff images saved to: ${outputDir}`);
 
