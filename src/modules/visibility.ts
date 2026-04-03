@@ -111,6 +111,11 @@ async function removeFocus(page: Page): Promise<void> {
 
 /**
  * Get info about the currently focused element.
+ * Selector strategy matches injectHelpers().__getSelector in traversal.ts:
+ *   1. #id
+ *   2. Unique tag[attr="value"] (href, aria-label, name, data-testid, type)
+ *   3. Custom element tag uniqueness
+ *   4. Id-anchored nth-of-type path
  */
 async function getActiveElementInfo(page: Page): Promise<{
   selector: string;
@@ -122,14 +127,16 @@ async function getActiveElementInfo(page: Page): Promise<{
 
     const tag = el.tagName.toLowerCase();
 
-    // Build a display selector (same logic as __getSelector but inline)
+    // Strategy 1: ID
     if (el.id) return { selector: "#" + el.id, tag };
 
-    // Try attribute-based
+    // Strategy 2: Unique attribute-based selector
     const attrs: [string, string | null][] = [
       ["href", el.getAttribute("href")],
       ["aria-label", el.getAttribute("aria-label")],
       ["name", el.getAttribute("name")],
+      ["data-testid", el.getAttribute("data-testid")],
+      ["type", tag === "input" ? el.getAttribute("type") : null],
     ];
     for (const [attr, val] of attrs) {
       if (val) {
@@ -143,7 +150,7 @@ async function getActiveElementInfo(page: Page): Promise<{
       }
     }
 
-    // Custom element
+    // Strategy 2b: Custom element tag uniqueness
     if (tag.includes("-")) {
       try {
         if (document.querySelectorAll(tag).length === 1) {
@@ -152,7 +159,7 @@ async function getActiveElementInfo(page: Page): Promise<{
       } catch { /* skip */ }
     }
 
-    // Fallback: short path
+    // Strategy 3: Id-anchored nth-of-type path
     const parts: string[] = [];
     let cur: Element | null = el;
     while (cur && cur !== document.documentElement) {
@@ -311,11 +318,8 @@ export async function analyzeIndicatorExistence(
     });
 
     // Re-focus the element so the next Tab press continues from here.
-    // We use keyboard Tab then Shift+Tab trick: blur left us on body,
-    // but we need focus back on this element for the next Tab to advance.
-    // Instead, we'll use evaluate to re-focus via activeElement caching.
+    // We use evaluate to re-focus via the selector we just computed.
     await page.evaluate((sel) => {
-      // Try to re-focus using the selector
       try {
         const el = document.querySelector(sel);
         if (el) (el as HTMLElement).focus();

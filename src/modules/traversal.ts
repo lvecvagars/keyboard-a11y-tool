@@ -26,33 +26,6 @@ const ESCAPE_KEYS = [
 ];
 
 /**
- * Helper used inside page.evaluate() calls to build a unique CSS selector.
- * Defined once here, called from multiple evaluate callbacks.
- */
-function buildSelectorInPage(el: Element): string {
-  if (el.id) {
-    return `#${CSS.escape(el.id)}`;
-  }
-  const parts: string[] = [];
-  let current: Element | null = el;
-  while (current && current !== document.documentElement) {
-    let part = current.tagName.toLowerCase();
-    if (current.parentElement) {
-      const siblings = Array.from(current.parentElement.children).filter(
-        (s) => s.tagName === current!.tagName
-      );
-      if (siblings.length > 1) {
-        const idx = siblings.indexOf(current) + 1;
-        part += `:nth-of-type(${idx})`;
-      }
-    }
-    parts.unshift(part);
-    current = current.parentElement;
-  }
-  return parts.join(" > ");
-}
-
-/**
  * Expose the selector builder inside the browser context.
  * Call this once after navigation, before running any checks.
  *
