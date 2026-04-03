@@ -7,8 +7,12 @@ import {
   verifySkipLink,
   detectObscured,
 } from "./modules/traversal";
-import { analyzeIndicatorExistence } from "./modules/visibility";
-import { TabStop } from "./types";import * as path from "path";
+import {
+  analyzeIndicators,
+  scanStylesheetsForOutlineRemoval,
+} from "./modules/visibility";
+import { TabStop } from "./types";
+import * as path from "path";
 
 /**
  * Deduplicate tab stops by selector, keeping the first occurrence.
@@ -166,12 +170,33 @@ async function main() {
     console.log("MODULE 2: Focus Indicator Visibility Analysis");
     console.log("=".repeat(60));
 
-    console.log("\nM2-01: Checking focus indicator existence...");
+    // M2-02 Part B: Stylesheet scan (runs once, before traversal)
+    console.log("\nM2-02b: Scanning stylesheets for outline removal...");
+    const outlineOverrides = await scanStylesheetsForOutlineRemoval(page);
+
+    if (outlineOverrides.length === 0) {
+      console.log("  ✓ No :focus outline removal rules found.");
+    } else {
+      for (const rule of outlineOverrides) {
+        if (rule.hasReplacement) {
+          console.log(
+            `  ⚠ ${rule.selectorText} removes outline but has replacement: ${rule.replacementProperties.join(", ")} (${rule.source})`
+          );
+        } else {
+          console.log(
+            `  ✗ ${rule.selectorText} removes outline with NO replacement (${rule.source})`
+          );
+        }
+      }
+    }
+
+    // M2-01 + M2-02 Part A: Combined traversal pass
+    console.log("\nM2-01/M2-02a: Checking focus indicators...");
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const outputDir = path.join("output", `m2-${timestamp}`);
 
-    const indicatorResults = await analyzeIndicatorExistence(
+    const indicatorResults = await analyzeIndicators(
       page,
       uniqueStops.length,
       outputDir,
@@ -183,23 +208,51 @@ async function main() {
 
     let noIndicatorCount = 0;
     let hasIndicatorCount = 0;
+    let outlineRemovedCount = 0;
+    let styleChangeCount = 0;
 
     for (const result of indicatorResults) {
+      // M2-01: Existence
+      const existLabel = result.existence.hasVisibleChange
+        ? `✓ ${result.existence.changedPixelCount}px changed`
+        : `✗ NO visible indicator (${result.existence.changedPixelCount}px)`;
+
       if (result.existence.hasVisibleChange) {
         hasIndicatorCount++;
-        console.log(
-          `  ✓ <${result.tag}> ${result.selector} — ${result.existence.changedPixelCount} changed pixels`
-        );
       } else {
         noIndicatorCount++;
-        console.log(
-          `  ✗ <${result.tag}> ${result.selector} — NO visible focus indicator (${result.existence.changedPixelCount} pixels)`
-        );
       }
+
+      // M2-02: CSS changes
+      const changeCount = result.cssAnalysis.computedChanges.length;
+      if (changeCount > 0) styleChangeCount++;
+
+      const cssLabel = changeCount > 0
+        ? `${changeCount} CSS change(s): ${result.cssAnalysis.computedChanges.map(c => c.property).join(", ")}`
+        : "no CSS changes";
+
+      const outlineWarning = result.cssAnalysis.outlineRemoved
+        ? " ⚠ outline removed, no replacement!"
+        : "";
+
+      if (result.cssAnalysis.outlineRemoved) outlineRemovedCount++;
+
+      console.log(
+        `  <${result.tag}> ${result.selector}`
+      );
+      console.log(
+        `    M2-01: ${existLabel}`
+      );
+      console.log(
+        `    M2-02: ${cssLabel}${outlineWarning}`
+      );
     }
 
     console.log(
-      `\n  Summary: ${hasIndicatorCount} with indicator, ${noIndicatorCount} without`
+      `\n  M2-01 Summary: ${hasIndicatorCount} with indicator, ${noIndicatorCount} without`
+    );
+    console.log(
+      `  M2-02 Summary: ${styleChangeCount} with CSS changes, ${outlineRemovedCount} with outline removed (no replacement)`
     );
     console.log(`  Diff images saved to: ${outputDir}`);
 

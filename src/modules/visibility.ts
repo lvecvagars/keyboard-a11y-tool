@@ -3,7 +3,7 @@ import { PNG } from "pngjs";
 import pixelmatch from "pixelmatch";
 import * as fs from "fs";
 import * as path from "path";
-import { IndicatorExistence } from "../types";
+import { IndicatorExistence, CSSFocusStyle, ComputedStyleChange } from "../types";
 
 // ---- Configuration ----
 
@@ -18,6 +18,41 @@ const MIN_CHANGED_PIXELS = 10;
 
 /** Maximum tab presses (matches Module 1) */
 const MAX_TAB_PRESSES = 500;
+
+/**
+ * CSS properties to compare between focused and unfocused states.
+ * Per the detection scope spec (M2-02).
+ */
+const FOCUS_STYLE_PROPERTIES = [
+  "outline",
+  "outlineColor",
+  "outlineWidth",
+  "outlineStyle",
+  "outlineOffset",
+  "border",
+  "borderColor",
+  "borderWidth",
+  "borderStyle",
+  "boxShadow",
+  "backgroundColor",
+  "color",
+  "textDecoration",
+] as const;
+
+/**
+ * Properties that count as valid replacements when outline is removed.
+ * If a :focus rule sets outline:none but also changes one of these,
+ * it's not necessarily a failure.
+ */
+const REPLACEMENT_PROPERTIES = [
+  "boxShadow",
+  "border",
+  "borderColor",
+  "borderWidth",
+  "borderStyle",
+  "backgroundColor",
+  "textDecoration",
+] as const;
 
 // ---- Helpers ----
 
@@ -110,6 +145,104 @@ async function removeFocus(page: Page): Promise<void> {
 }
 
 /**
+ * Read the computed values of FOCUS_STYLE_PROPERTIES for the currently
+ * focused element. Returns null if nothing is focused.
+ */
+async function readFocusStyles(page: Page): Promise<Record<string, string> | null> {
+  return page.evaluate((properties: string[]) => {
+    const el = document.activeElement;
+    if (!el || el === document.body || el === document.documentElement) return null;
+
+    const styles = window.getComputedStyle(el);
+    const result: Record<string, string> = {};
+    for (const prop of properties) {
+      result[prop] = styles.getPropertyValue(
+        // Convert camelCase to kebab-case for getPropertyValue
+        prop.replace(/([A-Z])/g, "-$1").toLowerCase()
+      );
+    }
+    return result;
+  }, [...FOCUS_STYLE_PROPERTIES]);
+}
+
+/**
+ * Read computed styles for a specific clip region's element (unfocused state).
+ * We need to read styles from the element that *was* focused, but is now blurred.
+ * Since blur moves focus away, we pass the selector to re-query the element.
+ */
+async function readUnfocusedStyles(
+  page: Page,
+  selector: string
+): Promise<Record<string, string> | null> {
+  return page.evaluate(
+    (args: { selector: string; properties: string[] }) => {
+      let el: Element | null = null;
+      try {
+        el = document.querySelector(args.selector);
+      } catch { /* invalid selector */ }
+      if (!el) return null;
+
+      const styles = window.getComputedStyle(el);
+      const result: Record<string, string> = {};
+      for (const prop of args.properties) {
+        result[prop] = styles.getPropertyValue(
+          prop.replace(/([A-Z])/g, "-$1").toLowerCase()
+        );
+      }
+      return result;
+    },
+    { selector, properties: [...FOCUS_STYLE_PROPERTIES] }
+  );
+}
+
+/**
+ * Compare focused and unfocused computed styles to produce M2-02 data.
+ */
+function compareStyles(
+  focused: Record<string, string>,
+  unfocused: Record<string, string>
+): { computedChanges: ComputedStyleChange[]; outlineRemoved: boolean; replacementProperties: string[] } {
+  const computedChanges: ComputedStyleChange[] = [];
+
+  for (const prop of FOCUS_STYLE_PROPERTIES) {
+    const fVal = focused[prop] ?? "";
+    const uVal = unfocused[prop] ?? "";
+    if (fVal !== uVal) {
+      computedChanges.push({ property: prop, unfocused: uVal, focused: fVal });
+    }
+  }
+
+  // Check if outline was removed on focus (outline becomes "none" or
+  // thinner than unfocused state — unusual but possible with :focus overrides)
+  // More commonly: unfocused has a default outline, focused sets outline: none.
+  // But the typical failure is: the browser default outline is suppressed by
+  // a CSS rule. In that case both states show outline: none and there's no
+  // computed change at all — which is caught by the stylesheet scan (Part B).
+  //
+  // What we detect HERE is: if the focused state has outline none/0 and the
+  // unfocused state had a visible outline, something explicitly removed it.
+  const focusedOutlineWidth = focused["outlineWidth"] ?? "";
+  const focusedOutlineStyle = focused["outlineStyle"] ?? "";
+  const outlineGone =
+    focusedOutlineStyle === "none" || focusedOutlineWidth === "0px";
+
+  // Check if any replacement property changed between states
+  const replacements: string[] = [];
+  for (const rProp of REPLACEMENT_PROPERTIES) {
+    const fVal = focused[rProp] ?? "";
+    const uVal = unfocused[rProp] ?? "";
+    if (fVal !== uVal) {
+      replacements.push(rProp);
+    }
+  }
+
+  // outlineRemoved = outline is gone on focus AND no replacement stepped in
+  const outlineRemoved = outlineGone && replacements.length === 0;
+
+  return { computedChanges, outlineRemoved, replacementProperties: replacements };
+}
+
+/**
  * Get info about the currently focused element.
  * Selector strategy matches injectHelpers().__getSelector in traversal.ts:
  *   1. #id
@@ -184,33 +317,138 @@ async function getActiveElementInfo(page: Page): Promise<{
   });
 }
 
-// ---- M2-01: Focus Indicator Existence (Screenshot Diff) ----
+// ---- M2-02 Part B: Stylesheet Scan ----
+
+/** A rule in a stylesheet that removes outline on :focus without replacement */
+export interface OutlineOverrideRule {
+  /** The full CSS selector text (e.g. "a:focus", "*:focus-visible") */
+  selectorText: string;
+  /** Which stylesheet it came from (href or "inline") */
+  source: string;
+  /** Whether a replacement property was found in the same rule */
+  hasReplacement: boolean;
+  /** Which replacement properties were found, if any */
+  replacementProperties: string[];
+}
 
 /**
- * M2-01: Analyze focus indicator existence by tabbing through the page.
+ * M2-02 Part B: Scan all stylesheets for rules that remove outline on
+ * :focus or :focus-visible without providing a replacement.
  *
- * Instead of re-finding elements by selector (which breaks on SPAs),
- * this function does its own tab traversal. For each focused element:
- *   1. Capture screenshot while focused (using live activeElement)
- *   2. Blur and capture same region unfocused
- *   3. Diff the two
+ * This catches the common pattern:
+ *   *:focus { outline: none; }
+ *   a:focus { outline: 0; }
  *
- * This approach always works because we never need to re-find elements
- * by selector — we work with whatever is currently focused.
+ * Cross-origin stylesheets will throw on .cssRules access — we skip those.
+ */
+export async function scanStylesheetsForOutlineRemoval(
+  page: Page
+): Promise<OutlineOverrideRule[]> {
+  return page.evaluate((replacementProps: string[]) => {
+    const results: OutlineOverrideRule[] = [];
+
+    for (let i = 0; i < document.styleSheets.length; i++) {
+      const sheet = document.styleSheets[i];
+      const source = sheet.href || "inline";
+
+      let rules: CSSRuleList;
+      try {
+        rules = sheet.cssRules;
+      } catch {
+        // Cross-origin stylesheet — can't read rules
+        continue;
+      }
+
+      for (let j = 0; j < rules.length; j++) {
+        const rule = rules[j];
+        if (!(rule instanceof CSSStyleRule)) continue;
+
+        const sel = rule.selectorText;
+        if (!sel) continue;
+
+        // Only interested in rules targeting :focus or :focus-visible
+        if (!sel.includes(":focus")) continue;
+
+        const style = rule.style;
+
+        // Check if this rule removes outline
+        const outlineVal = style.getPropertyValue("outline").trim().toLowerCase();
+        const outlineStyleVal = style.getPropertyValue("outline-style").trim().toLowerCase();
+        const outlineWidthVal = style.getPropertyValue("outline-width").trim().toLowerCase();
+
+        const removesOutline =
+          outlineVal === "none" ||
+          outlineVal === "0" ||
+          outlineVal === "0px" ||
+          outlineStyleVal === "none" ||
+          outlineWidthVal === "0" ||
+          outlineWidthVal === "0px";
+
+        if (!removesOutline) continue;
+
+        // Check if the same rule provides a replacement
+        const foundReplacements: string[] = [];
+        for (const rProp of replacementProps) {
+          const kebab = rProp.replace(/([A-Z])/g, "-$1").toLowerCase();
+          const val = style.getPropertyValue(kebab).trim();
+          if (val && val !== "none" && val !== "0" && val !== "0px" && val !== "initial") {
+            foundReplacements.push(rProp);
+          }
+        }
+
+        results.push({
+          selectorText: sel,
+          source,
+          hasReplacement: foundReplacements.length > 0,
+          replacementProperties: foundReplacements,
+        });
+      }
+    }
+
+    return results;
+  }, [...REPLACEMENT_PROPERTIES]);
+}
+
+// ---- Combined M2-01 + M2-02 Analysis ----
+
+/** Result for a single element from the combined M2-01/M2-02 pass */
+export interface IndicatorAnalysis {
+  selector: string;
+  tag: string;
+  existence: IndicatorExistence;
+  cssAnalysis: CSSFocusStyle;
+}
+
+/**
+ * Combined M2-01 + M2-02: Analyze focus indicators by tabbing through the page.
+ *
+ * Single traversal pass that collects both:
+ *   - M2-01: Screenshot diff (focus indicator existence)
+ *   - M2-02 Part A: Computed style comparison (CSS focus style changes)
+ *
+ * For each focused element:
+ *   1. Read computed styles while focused
+ *   2. Capture focused screenshot
+ *   3. Blur element
+ *   4. Read computed styles while unfocused
+ *   5. Capture unfocused screenshot
+ *   6. Diff screenshots (M2-01)
+ *   7. Diff computed styles (M2-02)
+ *
+ * M2-02 Part B (stylesheet scan) runs separately via scanStylesheetsForOutlineRemoval().
  *
  * @param page       - Playwright page
- * @param stopCount  - Number of unique tab stops from M1 (used for cycle detection)
+ * @param stopCount  - Number of unique tab stops from M1 (used for progress display)
  * @param outputDir  - Directory to save diff images (null to skip saving)
  * @param onProgress - Optional progress callback
- * @returns Array of results with selector, tag, and indicator existence data
  */
-export async function analyzeIndicatorExistence(
+export async function analyzeIndicators(
   page: Page,
   stopCount: number,
   outputDir: string | null = null,
   onProgress?: (current: number, total: number) => void
-): Promise<{ selector: string; tag: string; existence: IndicatorExistence }[]> {
-  const results: { selector: string; tag: string; existence: IndicatorExistence }[] = [];
+): Promise<IndicatorAnalysis[]> {
+  const results: IndicatorAnalysis[] = [];
   const seen = new Set<string>();
 
   // Reset focus to start of page
@@ -232,36 +470,65 @@ export async function analyzeIndicatorExistence(
 
     onProgress?.(seen.size, stopCount);
 
-    // ---- Screenshot while focused ----
     // Extra wait for focus styles/transitions to render
     await page.waitForTimeout(80);
 
+    // ---- M2-02: Read computed styles while focused ----
+    const focusedStyles = await readFocusStyles(page);
+
+    // ---- M2-01: Screenshot while focused ----
     const focusedCapture = await captureActiveElementRegion(page, SCREENSHOT_PADDING);
+
+    // ---- Blur ----
+    await removeFocus(page);
+
+    // ---- M2-02: Read computed styles while unfocused ----
+    const unfocusedStyles = await readUnfocusedStyles(page, info.selector);
+
+    // ---- M2-02: Compare styles ----
+    let cssAnalysis: CSSFocusStyle;
+    if (focusedStyles && unfocusedStyles) {
+      const comparison = compareStyles(focusedStyles, unfocusedStyles);
+      cssAnalysis = {
+        outlineRemoved: comparison.outlineRemoved,
+        replacementProperties: comparison.replacementProperties,
+        computedChanges: comparison.computedChanges,
+      };
+    } else {
+      cssAnalysis = {
+        outlineRemoved: false,
+        replacementProperties: [],
+        computedChanges: [],
+      };
+    }
+
+    // ---- M2-01: Screenshot while unfocused + diff ----
     if (!focusedCapture) {
       results.push({
         selector: info.selector,
         tag: info.tag,
         existence: { hasVisibleChange: false, changedPixelCount: 0, diffImagePath: "" },
+        cssAnalysis,
       });
+      // Re-focus for next iteration
+      await refocus(page, info.selector);
       continue;
     }
 
     const { png: focusedPng, clip } = focusedCapture;
-
-    // ---- Remove focus and screenshot same region ----
-    await removeFocus(page);
-
     const unfocusedPng = await captureClipRegion(page, clip);
+
     if (!unfocusedPng) {
       results.push({
         selector: info.selector,
         tag: info.tag,
         existence: { hasVisibleChange: false, changedPixelCount: 0, diffImagePath: "" },
+        cssAnalysis,
       });
+      await refocus(page, info.selector);
       continue;
     }
 
-    // ---- Diff ----
     if (
       focusedPng.width !== unfocusedPng.width ||
       focusedPng.height !== unfocusedPng.height
@@ -270,7 +537,9 @@ export async function analyzeIndicatorExistence(
         selector: info.selector,
         tag: info.tag,
         existence: { hasVisibleChange: false, changedPixelCount: 0, diffImagePath: "" },
+        cssAnalysis,
       });
+      await refocus(page, info.selector);
       continue;
     }
 
@@ -315,18 +584,31 @@ export async function analyzeIndicatorExistence(
         changedPixelCount,
         diffImagePath,
       },
+      cssAnalysis,
     });
 
-    // Re-focus the element so the next Tab press continues from here.
-    // We use evaluate to re-focus via the selector we just computed.
-    await page.evaluate((sel) => {
-      try {
-        const el = document.querySelector(sel);
-        if (el) (el as HTMLElement).focus();
-      } catch { /* will fall through to next tab */ }
-    }, info.selector);
-    await page.waitForTimeout(30);
+    await refocus(page, info.selector);
   }
 
   return results;
 }
+
+/**
+ * Re-focus an element by selector so the next Tab press continues from here.
+ */
+async function refocus(page: Page, selector: string): Promise<void> {
+  await page.evaluate((sel) => {
+    try {
+      const el = document.querySelector(sel);
+      if (el) (el as HTMLElement).focus();
+    } catch { /* will fall through to next tab */ }
+  }, selector);
+  await page.waitForTimeout(30);
+}
+
+// ---- Backward-compatible export ----
+
+/**
+ * @deprecated Use analyzeIndicators() instead. Kept for reference only.
+ */
+export const analyzeIndicatorExistence = analyzeIndicators;
