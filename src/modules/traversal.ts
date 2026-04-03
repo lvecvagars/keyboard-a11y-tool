@@ -55,18 +55,68 @@ function buildSelectorInPage(el: Element): string {
 /**
  * Expose the selector builder inside the browser context.
  * Call this once after navigation, before running any checks.
+ *
+ * The selector strategy prioritizes stability across DOM re-renders:
+ *   1. #id (most stable)
+ *   2. Unique attribute combos: tag + href, tag + aria-label, etc.
+ *   3. nth-of-type path fallback (least stable on SPAs)
  */
 export async function injectHelpers(page: Page): Promise<void> {
   await page.exposeFunction("__buildSelector", async () => "");
   await page.evaluate(() => {
     (window as any).__getSelector = function (el: Element): string {
+      // Strategy 1: ID
       if (el.id) {
         return "#" + CSS.escape(el.id);
       }
+
+      // Strategy 2: Unique attribute-based selector
+      // Try combinations that are likely unique and stable across re-renders
+      const tag = el.tagName.toLowerCase();
+      const attrs: [string, string | null][] = [
+        ["href", el.getAttribute("href")],
+        ["aria-label", el.getAttribute("aria-label")],
+        ["name", el.getAttribute("name")],
+        ["data-testid", el.getAttribute("data-testid")],
+        ["type", tag === "input" ? el.getAttribute("type") : null],
+      ];
+
+      for (const [attr, val] of attrs) {
+        if (val) {
+          // Use quoted attribute value — avoids CSS.escape round-trip issues
+          // Only need to escape quotes and backslashes within the value
+          const escaped = val.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+          const candidate = tag + "[" + attr + '="' + escaped + '"]';
+          try {
+            const matches = document.querySelectorAll(candidate);
+            if (matches.length === 1) {
+              return candidate;
+            }
+          } catch {
+            // Selector might still be invalid for exotic attribute values
+          }
+        }
+      }
+
+      // Strategy 2b: For custom elements (tag name with a hyphen),
+      // the tag itself might be unique enough
+      if (tag.includes("-")) {
+        const matches = document.querySelectorAll(tag);
+        if (matches.length === 1) {
+          return tag;
+        }
+      }
+
+      // Strategy 3: nth-of-type path (fallback)
       const parts: string[] = [];
       let current: Element | null = el;
       while (current && current !== document.documentElement) {
         let part = current.tagName.toLowerCase();
+        if (current.id) {
+          // Anchor to nearest ancestor with an ID for a shorter, more stable path
+          parts.unshift("#" + CSS.escape(current.id));
+          break;
+        }
         if (current.parentElement) {
           const siblings = Array.from(current.parentElement.children).filter(
             (s) => s.tagName === current!.tagName
@@ -511,13 +561,15 @@ export function analyzeFocusOrder(stops: TabStop[]): FocusOrderResult {
  */
 export async function detectObscured(
   page: Page,
-  stops: TabStop[]
+  stops: TabStop[],
+  onProgress?: (current: number, total: number) => void
 ): Promise<Map<number, ObscuredResult>> {
   const results = new Map<number, ObscuredResult>();
   const viewportHeight = 720;
   const viewportWidth = 1280;
 
   for (const stop of stops) {
+    onProgress?.(stops.indexOf(stop) + 1, stops.length);
     try {
       await page.focus(stop.selector);
     } catch {
@@ -531,7 +583,7 @@ export async function detectObscured(
       continue;
     }
 
-    await page.waitForTimeout(30);
+    await page.waitForTimeout(10);
 
     // Check if the focused element is actually visually obscured
     // by using elementFromPoint at the center of the element.

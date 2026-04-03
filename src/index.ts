@@ -7,6 +7,24 @@ import {
   verifySkipLink,
   detectObscured,
 } from "./modules/traversal";
+import { analyzeIndicatorExistence } from "./modules/visibility";
+import { TabStop } from "./types";import * as path from "path";
+
+/**
+ * Deduplicate tab stops by selector, keeping the first occurrence.
+ * Preserves the original index so results can map back to forwardStops.
+ */
+function deduplicateStops(stops: TabStop[]): TabStop[] {
+  const seen = new Set<string>();
+  const unique: TabStop[] = [];
+  for (const stop of stops) {
+    if (!seen.has(stop.selector)) {
+      seen.add(stop.selector);
+      unique.push(stop);
+    }
+  }
+  return unique;
+}
 
 async function main() {
   const url = process.argv[2];
@@ -23,22 +41,31 @@ async function main() {
   try {
     // Inject shared helper functions into the page context
     await injectHelpers(page);
+
     // M1-01: Forward traversal
     const forwardStops = await recordTabStops(page, "forward");
-    console.log(`\nForward: ${forwardStops.length} tab stops`);
-    for (const stop of forwardStops) {
+    const uniqueStops = deduplicateStops(forwardStops);
+
+    console.log(`\nForward: ${forwardStops.length} tab stops (${uniqueStops.length} unique)`);
+    for (const stop of uniqueStops) {
       console.log(`  [${stop.index}] <${stop.tag}> ${stop.selector}`);
+    }
+    if (uniqueStops.length < forwardStops.length) {
+      console.log(
+        `  ... ${forwardStops.length - uniqueStops.length} duplicate stops omitted (likely from keyboard traps)`
+      );
     }
 
     // M1-01: Backward traversal
     const backwardStops = await recordTabStops(page, "backward");
-    console.log(`\nBackward: ${backwardStops.length} tab stops`);
+    const uniqueBackward = deduplicateStops(backwardStops);
+    console.log(`\nBackward: ${backwardStops.length} tab stops (${uniqueBackward.length} unique)`);
 
-    if (forwardStops.length === backwardStops.length) {
-      console.log("✓ Forward and backward counts match.");
+    if (uniqueStops.length === uniqueBackward.length) {
+      console.log("✓ Forward and backward unique counts match.");
     } else {
       console.log(
-        `✗ Count mismatch: forward=${forwardStops.length}, backward=${backwardStops.length}`
+        `✗ Unique count mismatch: forward=${uniqueStops.length}, backward=${uniqueBackward.length}`
       );
     }
 
@@ -64,9 +91,9 @@ async function main() {
       }
     }
 
-    // M1-03: Focus order analysis
+    // M1-03: Focus order analysis (uses unique stops — duplicates skew correlation)
     console.log("\nAnalyzing focus order vs. visual layout...");
-    const focusOrder = analyzeFocusOrder(forwardStops);
+    const focusOrder = analyzeFocusOrder(uniqueStops);
     console.log(
       `  Correlation score: ${focusOrder.correlationScore} (1.0 = perfect match)`
     );
@@ -85,6 +112,7 @@ async function main() {
         }
       }
     }
+
     // M1-04: Skip link verification
     console.log("\nChecking for skip link...");
     const skipLink = await verifySkipLink(page, forwardStops);
@@ -100,22 +128,27 @@ async function main() {
         `  ⚠ Skip link found but target is not reachable (target: ${skipLink.targetSelector})`
       );
     }
-    // M1-05: Focus not obscured detection
-    console.log("\nChecking for obscured focus...");
-    const obscured = await detectObscured(page, forwardStops);
+
+    // M1-05: Focus not obscured detection (use unique stops to avoid redundant work)
+    console.log(`\nChecking for obscured focus (${uniqueStops.length} elements)...`);
+    const obscured = await detectObscured(page, uniqueStops, (current, total) => {
+      process.stdout.write(`\r  Progress: ${current}/${total}`);
+    });
+    process.stdout.write("\n");
 
     let obscuredCount = 0;
     let partialCount = 0;
     for (const [idx, result] of obscured) {
+      const stop = uniqueStops.find(s => s.index === idx);
       if (result.fullyObscured) {
         obscuredCount++;
         console.log(
-          `  ✗ [${idx}] ${forwardStops[idx].selector} — fully obscured by ${result.obscuringElement}`
+          `  ✗ [${idx}] ${stop?.selector} — fully obscured by ${result.obscuringElement}`
         );
       } else if (result.partiallyObscured) {
         partialCount++;
         console.log(
-          `  ⚠ [${idx}] ${forwardStops[idx].selector} — ${result.overlapPercent}% obscured by ${result.obscuringElement}`
+          `  ⚠ [${idx}] ${stop?.selector} — ${result.overlapPercent}% obscured by ${result.obscuringElement}`
         );
       }
     }
@@ -124,6 +157,52 @@ async function main() {
     } else {
       console.log(`  ${obscuredCount} fully obscured, ${partialCount} partially obscured.`);
     }
+
+    // ============================================================
+    // MODULE 2: Focus Indicator Visibility Analysis
+    // ============================================================
+
+    console.log("\n" + "=".repeat(60));
+    console.log("MODULE 2: Focus Indicator Visibility Analysis");
+    console.log("=".repeat(60));
+
+    console.log("\nM2-01: Checking focus indicator existence...");
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const outputDir = path.join("output", `m2-${timestamp}`);
+
+    const indicatorResults = await analyzeIndicatorExistence(
+      page,
+      uniqueStops.length,
+      outputDir,
+      (current, total) => {
+        process.stdout.write(`\r  Progress: ${current}/${total}`);
+      }
+    );
+    process.stdout.write("\n");
+
+    let noIndicatorCount = 0;
+    let hasIndicatorCount = 0;
+
+    for (const result of indicatorResults) {
+      if (result.existence.hasVisibleChange) {
+        hasIndicatorCount++;
+        console.log(
+          `  ✓ <${result.tag}> ${result.selector} — ${result.existence.changedPixelCount} changed pixels`
+        );
+      } else {
+        noIndicatorCount++;
+        console.log(
+          `  ✗ <${result.tag}> ${result.selector} — NO visible focus indicator (${result.existence.changedPixelCount} pixels)`
+        );
+      }
+    }
+
+    console.log(
+      `\n  Summary: ${hasIndicatorCount} with indicator, ${noIndicatorCount} without`
+    );
+    console.log(`  Diff images saved to: ${outputDir}`);
+
   } finally {
     await browser.close();
   }
