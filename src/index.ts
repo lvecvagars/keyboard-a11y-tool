@@ -11,6 +11,7 @@ import {
   analyzeIndicators,
   scanStylesheetsForOutlineRemoval,
 } from "./modules/visibility";
+import { analyzeInteractiveCoverage } from "./modules/coverage";
 import { TabStop } from "./types";
 import * as path from "path";
 
@@ -313,6 +314,110 @@ async function main() {
       `  M2-05 Summary: avg ${avgScore}/100 | ${scoreCounts.excellent} excellent, ${scoreCounts.good} good, ${scoreCounts.partial} partial, ${scoreCounts.poor} poor, ${scoreCounts.none} none`
     );
     console.log(`  Diff images saved to: ${outputDir}`);
+
+    // ============================================================
+    // MODULE 3: Interactive Element Coverage
+    // ============================================================
+
+    console.log("\n" + "=".repeat(60));
+    console.log("MODULE 3: Interactive Element Coverage");
+    console.log("=".repeat(60));
+
+    // Build the full set of keyboard-reachable selectors from both M1 and M2.
+    // M1 may miss elements beyond a keyboard trap; M2 does its own traversal.
+    const m2ReachableSelectors = indicatorResults.map((r) => r.selector);
+
+    const m3Results = await analyzeInteractiveCoverage(
+      page,
+      uniqueStops,
+      m2ReachableSelectors,
+      (phase, detail) => {
+        process.stdout.write(`\r  [${phase}] ${detail}          `);
+      }
+    );
+    process.stdout.write("\n");
+
+    // M3-01: Coverage Gap
+    console.log("\nM3-01: Pointer-Interactive vs. Keyboard-Reachable Gap");
+    console.log(
+      `  Total interactive: ${m3Results.coverageGap.totalInteractive} | ` +
+      `Keyboard-reachable: ${m3Results.coverageGap.totalReachable} | ` +
+      `Coverage: ${m3Results.coverageGap.coveragePercent}%`
+    );
+
+    if (m3Results.coverageGap.unreachableElements.length === 0) {
+      console.log("  ✓ All interactive elements are keyboard-reachable.");
+    } else {
+      console.log(
+        `  ✗ ${m3Results.coverageGap.unreachableElements.length} unreachable element(s):`
+      );
+      for (const el of m3Results.coverageGap.unreachableElements) {
+        const signals: string[] = [];
+        if (el.hasClickHandler) signals.push("click handler");
+        if (el.hasCursorPointer) signals.push("cursor:pointer");
+        if (el.role) signals.push(`role="${el.role}"`);
+        console.log(
+          `    ✗ <${el.tag}> ${el.selector} [${signals.join(", ")}]`
+        );
+      }
+    }
+
+    // M3-02: Non-Semantic Controls
+    console.log("\nM3-02: Non-Semantic Interactive Element Detection");
+
+    if (m3Results.nonSemanticControls.length === 0) {
+      console.log("  ✓ No inaccessible non-semantic controls found.");
+    } else {
+      console.log(
+        `  ✗ ${m3Results.nonSemanticControls.length} non-semantic control(s) with issues:`
+      );
+      for (const ctrl of m3Results.nonSemanticControls) {
+        const attrs: string[] = [];
+        if (ctrl.hasTabindex) attrs.push("tabindex ✓");
+        else attrs.push("tabindex ✗");
+        if (ctrl.hasRole) attrs.push("role ✓");
+        else attrs.push("role ✗");
+        if (ctrl.hasKeyHandler) attrs.push("key handler ✓");
+        else attrs.push("key handler ✗");
+
+        console.log(
+          `    ✗ <${ctrl.tag}> ${ctrl.selector} [${attrs.join(", ")}]`
+        );
+        for (const issue of ctrl.issues) {
+          console.log(`      → ${issue}`);
+        }
+      }
+    }
+
+    // M3-03: Scrollable Regions
+    console.log("\nM3-03: Scrollable Region Keyboard Access");
+
+    if (m3Results.scrollableRegions.length === 0) {
+      console.log("  ✓ No scrollable regions found (or none with overflow).");
+    } else {
+      let inaccessibleScrollCount = 0;
+      for (const region of m3Results.scrollableRegions) {
+        const isAccessible = region.isFocusable || region.hasFocusableChild;
+        if (!isAccessible) {
+          inaccessibleScrollCount++;
+          console.log(
+            `  ✗ ${region.selector} — scrollable (${region.scrollHeight}px content in ${region.clientHeight}px container) but NOT keyboard-accessible`
+          );
+        } else {
+          const method = region.isFocusable
+            ? "focusable container"
+            : "has focusable child";
+          console.log(
+            `  ✓ ${region.selector} — scrollable, accessible via ${method}`
+          );
+        }
+      }
+      if (inaccessibleScrollCount === 0) {
+        console.log("  ✓ All scrollable regions are keyboard-accessible.");
+      } else {
+        console.log(`  ${inaccessibleScrollCount} inaccessible scrollable region(s).`);
+      }
+    }
 
   } finally {
     await browser.close();
