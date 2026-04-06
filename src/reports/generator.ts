@@ -174,6 +174,8 @@ export function generateM2Issues(
 
   // Per-element results from the traversal pass
   for (const r of indicatorResults) {
+    const scoreTag = ` Visibility score: ${r.score.score}/100 (${r.score.level}).`;
+
     // M2-01: No visible indicator
     if (!r.existence.hasVisibleChange) {
       issues.push({
@@ -181,7 +183,7 @@ export function generateM2Issues(
         wcagCriterion: "2.4.7",
         severity: "critical",
         elementSelector: r.selector,
-        description: `No visible focus indicator detected (${r.existence.changedPixelCount} changed pixels, threshold is 10).`,
+        description: `No visible focus indicator detected (${r.existence.changedPixelCount} changed pixels, threshold is 10).${scoreTag}`,
         remediation: "Add a visible focus indicator using :focus or :focus-visible. Use outline, box-shadow, or border that contrasts with the surrounding background.",
         screenshotPath: r.existence.diffImagePath || undefined,
       });
@@ -195,7 +197,7 @@ export function generateM2Issues(
         wcagCriterion: "2.4.7",
         severity: "critical",
         elementSelector: r.selector,
-        description: "Default outline is actively removed on focus with no replacement CSS property.",
+        description: `Default outline is actively removed on focus with no replacement CSS property.${scoreTag}`,
         remediation: "Do not suppress the focus outline without providing an alternative. Add box-shadow, border, or background-color change in the same :focus rule.",
       });
     }
@@ -207,7 +209,7 @@ export function generateM2Issues(
         wcagCriterion: "2.4.13",
         severity: "warning",
         elementSelector: r.selector,
-        description: `Focus indicator contrast is below 3:1 (median ${r.contrast.medianContrast}:1, ${r.contrast.percentMeeting3to1}% of pixels meet threshold).`,
+        description: `Focus indicator contrast is below 3:1 (median ${r.contrast.medianContrast}:1, ${r.contrast.percentMeeting3to1}% of pixels meet threshold).${scoreTag}`,
         remediation: "Increase the contrast of the focus indicator. Use a color that differs from both the element's background and the page background by at least 3:1. Dark outlines on light backgrounds or vice versa work well.",
         screenshotPath: r.existence.diffImagePath || undefined,
       });
@@ -220,21 +222,8 @@ export function generateM2Issues(
         wcagCriterion: "2.4.13",
         severity: "warning",
         elementSelector: r.selector,
-        description: `Focus indicator area is below WCAG 2.4.13 minimum (${r.area.qualifyingPixelCount}px qualifying vs ${r.area.minimumRequiredArea}px required, ratio ${r.area.areaRatio}).`,
+        description: `Focus indicator area is below WCAG 2.4.13 minimum (${r.area.qualifyingPixelCount}px qualifying vs ${r.area.minimumRequiredArea}px required, ratio ${r.area.areaRatio}).${scoreTag}`,
         remediation: "Increase the size of the focus indicator. Use an outline or border at least 2px thick around the entire element perimeter. Ensure the indicator meets both the minimum area and 3:1 contrast requirements.",
-        screenshotPath: r.existence.diffImagePath || undefined,
-      });
-    }
-
-    // M2-05: Low score (informational — aggregates M2-01 through M2-04)
-    if (r.score.level === "poor") {
-      issues.push({
-        checkId: "M2-05",
-        wcagCriterion: "2.4.7",
-        severity: "warning",
-        elementSelector: r.selector,
-        description: `Focus indicator visibility score is poor (${r.score.score}/100). The indicator exists but fails both contrast and area thresholds.`,
-        remediation: "Redesign the focus indicator for this element. Use a solid outline or box-shadow with at least 3:1 contrast and 2px thickness around the full perimeter.",
         screenshotPath: r.existence.diffImagePath || undefined,
       });
     }
@@ -386,66 +375,58 @@ export function writeHtmlReport(report: ReportData, outputDir: string): string {
   const { summary, issues, url, timestamp, durationMs } = report;
   const duration = (durationMs / 1000).toFixed(1);
 
-  // Group issues by check ID for organized display
-  const issuesByCheck = new Map<string, ReportIssue[]>();
+  // Group issues by element for cleaner display — same element's issues appear together
+  const issuesByElement = new Map<string, ReportIssue[]>();
   for (const issue of issues) {
-    const list = issuesByCheck.get(issue.checkId) || [];
+    const key = issue.elementSelector;
+    const list = issuesByElement.get(key) || [];
     list.push(issue);
-    issuesByCheck.set(issue.checkId, list);
+    issuesByElement.set(key, list);
   }
 
-  const checkNames: Record<string, string> = {
-    "M1-01": "Tab Sequence Recording",
-    "M1-02": "Keyboard Trap Detection",
-    "M1-03": "Focus Order vs Visual Layout",
-    "M1-04": "Skip Link Verification",
-    "M1-05": "Focus Not Obscured",
-    "M2-01": "Focus Indicator Existence",
-    "M2-02": "CSS Focus Style Analysis",
-    "M2-03": "Focus Indicator Contrast",
-    "M2-04": "Focus Indicator Area",
-    "M2-05": "Visibility Score",
-    "M3-01": "Interactive Element Coverage",
-    "M3-02": "Non-Semantic Controls",
-    "M3-03": "Scrollable Region Access",
-  };
-
-  const moduleNames: Record<string, string> = {
-    M1: "Focus Traversal & Order",
-    M2: "Focus Indicator Visibility",
-    M3: "Interactive Element Coverage",
-  };
+  // Sort elements: critical issues first, then by module order
+  const severityWeight: Record<Severity, number> = { critical: 0, warning: 1, moderate: 2, info: 3 };
+  const sortedElements = Array.from(issuesByElement.entries()).sort(([, a], [, b]) => {
+    const aMin = Math.min(...a.map(i => severityWeight[i.severity]));
+    const bMin = Math.min(...b.map(i => severityWeight[i.severity]));
+    if (aMin !== bMin) return aMin - bMin;
+    return a[0].checkId.localeCompare(b[0].checkId);
+  });
 
   // Build issue rows HTML
   let issueRows = "";
-  const moduleOrder = ["M1", "M2", "M3"];
 
-  for (const mod of moduleOrder) {
-    const modChecks = Array.from(issuesByCheck.entries())
-      .filter(([id]) => id.startsWith(mod))
-      .sort(([a], [b]) => a.localeCompare(b));
+  for (const [selector, elementIssues] of sortedElements) {
+    const worstSeverity = elementIssues.reduce((worst, i) =>
+      severityWeight[i.severity] < severityWeight[worst] ? i.severity : worst,
+      "info" as Severity
+    );
+    const color = SEVERITY_COLORS[worstSeverity];
+    const label = SEVERITY_LABELS[worstSeverity];
 
-    if (modChecks.length === 0) continue;
+    const checks = elementIssues.map(i =>
+      `<code>${escapeHtml(i.checkId)}</code>`
+    ).join(" ");
 
-    issueRows += `<tr class="module-header"><td colspan="5">${escapeHtml(moduleNames[mod] || mod)}</td></tr>\n`;
+    const wcag = Array.from(new Set(elementIssues.map(i => i.wcagCriterion))).join(", ");
 
-    for (const [checkId, checkIssues] of modChecks) {
-      for (const issue of checkIssues) {
-        const color = SEVERITY_COLORS[issue.severity];
-        const label = SEVERITY_LABELS[issue.severity];
-        const screenshot = issue.screenshotPath
-          ? `<a href="${escapeHtml(path.relative(outputDir, issue.screenshotPath))}">screenshot</a>`
-          : "";
+    const descriptions = elementIssues.map(i => {
+      const screenshot = i.screenshotPath
+        ? ` <a href="${escapeHtml(path.relative(outputDir, i.screenshotPath))}">screenshot</a>`
+        : "";
+      return `<p>${escapeHtml(i.description)}${screenshot}</p>`;
+    }).join("\n");
 
-        issueRows += `<tr>
-  <td><code>${escapeHtml(checkId)}</code><br><small>${escapeHtml(checkNames[checkId] || "")}</small></td>
-  <td><span class="severity" style="background:${color}">${label}</span></td>
-  <td><code class="selector">${escapeHtml(issue.elementSelector)}</code></td>
-  <td>${escapeHtml(issue.description)} ${screenshot}</td>
-  <td>${escapeHtml(issue.remediation)}</td>
+    const remediations = Array.from(new Set(elementIssues.map(i => i.remediation)))
+      .map(r => `<p>${escapeHtml(r)}</p>`)
+      .join("\n");
+
+    issueRows += `<tr>
+  <td><span class="severity" style="background:${color}">${label}</span><br><small>WCAG ${escapeHtml(wcag)}</small><br>${checks}</td>
+  <td><code class="selector">${escapeHtml(selector)}</code></td>
+  <td>${descriptions}</td>
+  <td>${remediations}</td>
 </tr>\n`;
-      }
-    }
   }
 
   // Score bar color
@@ -542,10 +523,9 @@ ${issues.length === 0
   : `<table>
 <thead>
   <tr>
-    <th style="width:120px">Check</th>
-    <th style="width:80px">Severity</th>
-    <th style="width:200px">Element</th>
-    <th>Description</th>
+    <th style="width:110px">Severity</th>
+    <th style="width:220px">Element</th>
+    <th>Issues</th>
     <th style="width:280px">Remediation</th>
   </tr>
 </thead>
