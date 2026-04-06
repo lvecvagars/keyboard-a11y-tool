@@ -3,7 +3,8 @@ import { PNG } from "pngjs";
 import pixelmatch from "pixelmatch";
 import * as fs from "fs";
 import * as path from "path";
-import { IndicatorExistence, CSSFocusStyle, ComputedStyleChange, OutlineState } from "../types";
+import { IndicatorExistence, CSSFocusStyle, ComputedStyleChange, OutlineState, IndicatorContrast } from "../types";
+import { computeContrastFromDiff } from "./contrast";
 
 // ---- Configuration ----
 
@@ -418,22 +419,31 @@ export async function scanStylesheetsForOutlineRemoval(
   }, [...REPLACEMENT_PROPERTIES]);
 }
 
-// ---- Combined M2-01 + M2-02 Analysis ----
+// ---- Combined M2-01 + M2-02 + M2-03 Analysis ----
 
-/** Result for a single element from the combined M2-01/M2-02 pass */
+/** Default contrast result for elements where screenshots couldn't be captured */
+const NO_CONTRAST: IndicatorContrast = {
+  medianContrast: 1,
+  minContrast: 1,
+  percentMeeting3to1: 0,
+};
+
+/** Result for a single element from the combined M2 pass */
 export interface IndicatorAnalysis {
   selector: string;
   tag: string;
   existence: IndicatorExistence;
   cssAnalysis: CSSFocusStyle;
+  contrast: IndicatorContrast;
 }
 
 /**
- * Combined M2-01 + M2-02: Analyze focus indicators by tabbing through the page.
+ * Combined M2-01 + M2-02 + M2-03: Analyze focus indicators by tabbing through the page.
  *
- * Single traversal pass that collects both:
+ * Single traversal pass that collects:
  *   - M2-01: Screenshot diff (focus indicator existence)
  *   - M2-02 Part A: Computed style comparison (CSS focus style changes)
+ *   - M2-03: Contrast ratio between focused and unfocused pixel colors
  *
  * For each focused element:
  *   1. Read computed styles while focused
@@ -442,7 +452,8 @@ export interface IndicatorAnalysis {
  *   4. Read computed styles while unfocused
  *   5. Capture unfocused screenshot
  *   6. Diff screenshots (M2-01)
- *   7. Diff computed styles (M2-02)
+ *   7. Compute contrast ratios on changed pixels (M2-03)
+ *   8. Diff computed styles (M2-02)
  *
  * M2-02 Part B (stylesheet scan) runs separately via scanStylesheetsForOutlineRemoval().
  *
@@ -518,6 +529,7 @@ export async function analyzeIndicators(
         tag: info.tag,
         existence: { hasVisibleChange: false, changedPixelCount: 0, diffImagePath: "" },
         cssAnalysis,
+        contrast: NO_CONTRAST,
       });
       // Re-focus for next iteration
       await refocus(page, info.selector);
@@ -533,6 +545,7 @@ export async function analyzeIndicators(
         tag: info.tag,
         existence: { hasVisibleChange: false, changedPixelCount: 0, diffImagePath: "" },
         cssAnalysis,
+        contrast: NO_CONTRAST,
       });
       await refocus(page, info.selector);
       continue;
@@ -547,6 +560,7 @@ export async function analyzeIndicators(
         tag: info.tag,
         existence: { hasVisibleChange: false, changedPixelCount: 0, diffImagePath: "" },
         cssAnalysis,
+        contrast: NO_CONTRAST,
       });
       await refocus(page, info.selector);
       continue;
@@ -562,6 +576,13 @@ export async function analyzeIndicators(
       width,
       height,
       { threshold: DIFF_THRESHOLD }
+    );
+
+    // ---- M2-03: Contrast ratio on changed pixels ----
+    const contrast = computeContrastFromDiff(
+      focusedPng,
+      unfocusedPng,
+      changedPixelCount
     );
 
     // ---- Save images ----
@@ -594,6 +615,7 @@ export async function analyzeIndicators(
         diffImagePath,
       },
       cssAnalysis,
+      contrast,
     });
 
     await refocus(page, info.selector);

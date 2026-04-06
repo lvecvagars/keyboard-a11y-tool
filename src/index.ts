@@ -190,8 +190,8 @@ async function main() {
       }
     }
 
-    // M2-01 + M2-02 Part A: Combined traversal pass
-    console.log("\nM2-01/M2-02a: Checking focus indicators...");
+    // M2-01 + M2-02 Part A + M2-03: Combined traversal pass
+    console.log("\nM2-01/M2-02a/M2-03: Checking focus indicators...");
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const outputDir = path.join("output", `m2-${timestamp}`);
@@ -211,6 +211,8 @@ async function main() {
     let outlineRemovedCount = 0;
     let outlineNeverCount = 0;
     let styleChangeCount = 0;
+    let contrastFailCount = 0;
+    let contrastPassCount = 0;
 
     for (const result of indicatorResults) {
       // M2-01: Existence
@@ -241,6 +243,18 @@ async function main() {
         outlineNeverCount++;
       }
 
+      // M2-03: Contrast ratio
+      let contrastLabel: string;
+      if (!result.existence.hasVisibleChange) {
+        contrastLabel = "n/a (no visible change)";
+      } else if (result.contrast.medianContrast >= 3) {
+        contrastLabel = `✓ median ${result.contrast.medianContrast}:1, min ${result.contrast.minContrast}:1, ${result.contrast.percentMeeting3to1}% ≥ 3:1`;
+        contrastPassCount++;
+      } else {
+        contrastLabel = `✗ median ${result.contrast.medianContrast}:1, min ${result.contrast.minContrast}:1, ${result.contrast.percentMeeting3to1}% ≥ 3:1`;
+        contrastFailCount++;
+      }
+
       console.log(
         `  <${result.tag}> ${result.selector}`
       );
@@ -250,6 +264,9 @@ async function main() {
       console.log(
         `    M2-02: ${cssLabel}${outlineWarning}`
       );
+      console.log(
+        `    M2-03: ${contrastLabel}`
+      );
     }
 
     console.log(
@@ -257,6 +274,9 @@ async function main() {
     );
     console.log(
       `  M2-02 Summary: ${styleChangeCount} with CSS changes, ${outlineRemovedCount} outline actively removed, ${outlineNeverCount} outline never present`
+    );
+    console.log(
+      `  M2-03 Summary: ${contrastPassCount} pass (median ≥ 3:1), ${contrastFailCount} fail`
     );
     console.log(`  Diff images saved to: ${outputDir}`);
 
