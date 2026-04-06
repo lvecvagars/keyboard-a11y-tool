@@ -215,6 +215,8 @@ async function main() {
     let contrastPassCount = 0;
     let areaPassCount = 0;
     let areaFailCount = 0;
+    let scoreCounts = { none: 0, poor: 0, partial: 0, good: 0, excellent: 0 };
+    let scoreTotal = 0;
 
     for (const result of indicatorResults) {
       // M2-01: Existence
@@ -284,6 +286,12 @@ async function main() {
       console.log(
         `    M2-04: ${areaLabel}`
       );
+      console.log(
+        `    M2-05: ${result.score.score}/100 (${result.score.level})`
+      );
+
+      scoreCounts[result.score.level]++;
+      scoreTotal += result.score.score;
     }
 
     console.log(
@@ -297,6 +305,12 @@ async function main() {
     );
     console.log(
       `  M2-04 Summary: ${areaPassCount} pass (area ratio ≥ 1.0), ${areaFailCount} fail`
+    );
+    const avgScore = indicatorResults.length > 0
+      ? Math.round(scoreTotal / indicatorResults.length)
+      : 0;
+    console.log(
+      `  M2-05 Summary: avg ${avgScore}/100 | ${scoreCounts.excellent} excellent, ${scoreCounts.good} good, ${scoreCounts.partial} partial, ${scoreCounts.poor} poor, ${scoreCounts.none} none`
     );
     console.log(`  Diff images saved to: ${outputDir}`);
 

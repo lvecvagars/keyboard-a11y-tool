@@ -3,8 +3,9 @@ import { PNG } from "pngjs";
 import pixelmatch from "pixelmatch";
 import * as fs from "fs";
 import * as path from "path";
-import { IndicatorExistence, CSSFocusStyle, ComputedStyleChange, OutlineState, IndicatorContrast, IndicatorArea } from "../types";
+import { IndicatorExistence, CSSFocusStyle, ComputedStyleChange, OutlineState, IndicatorContrast, IndicatorArea, VisibilityScore } from "../types";
 import { computeContrastAndArea } from "./contrast";
+import { computeVisibilityScore } from "./score";
 
 // ---- Configuration ----
 
@@ -425,6 +426,7 @@ export interface IndicatorAnalysis {
   cssAnalysis: CSSFocusStyle;
   contrast: IndicatorContrast;
   area: IndicatorArea;
+  score: VisibilityScore;
 }
 
 /**
@@ -519,13 +521,15 @@ export async function analyzeIndicators(
 
     // ---- M2-01: Screenshot while unfocused + diff ----
     if (!focusedCapture) {
+      const existence: IndicatorExistence = { hasVisibleChange: false, changedPixelCount: 0, diffImagePath: "" };
       results.push({
         selector: info.selector,
         tag: info.tag,
-        existence: { hasVisibleChange: false, changedPixelCount: 0, diffImagePath: "" },
+        existence,
         cssAnalysis,
         contrast: NO_CONTRAST,
         area: NO_AREA,
+        score: computeVisibilityScore(existence, NO_CONTRAST, NO_AREA),
       });
       await refocus(page, info.selector);
       continue;
@@ -535,13 +539,15 @@ export async function analyzeIndicators(
     const unfocusedPng = await captureClipRegion(page, clip);
 
     if (!unfocusedPng) {
+      const existence: IndicatorExistence = { hasVisibleChange: false, changedPixelCount: 0, diffImagePath: "" };
       results.push({
         selector: info.selector,
         tag: info.tag,
-        existence: { hasVisibleChange: false, changedPixelCount: 0, diffImagePath: "" },
+        existence,
         cssAnalysis,
         contrast: NO_CONTRAST,
         area: NO_AREA,
+        score: computeVisibilityScore(existence, NO_CONTRAST, NO_AREA),
       });
       await refocus(page, info.selector);
       continue;
@@ -551,13 +557,15 @@ export async function analyzeIndicators(
       focusedPng.width !== unfocusedPng.width ||
       focusedPng.height !== unfocusedPng.height
     ) {
+      const existence: IndicatorExistence = { hasVisibleChange: false, changedPixelCount: 0, diffImagePath: "" };
       results.push({
         selector: info.selector,
         tag: info.tag,
-        existence: { hasVisibleChange: false, changedPixelCount: 0, diffImagePath: "" },
+        existence,
         cssAnalysis,
         contrast: NO_CONTRAST,
         area: NO_AREA,
+        score: computeVisibilityScore(existence, NO_CONTRAST, NO_AREA),
       });
       await refocus(page, info.selector);
       continue;
@@ -607,17 +615,20 @@ export async function analyzeIndicators(
       fs.writeFileSync(diffImagePath, PNG.sync.write(diffPng));
     }
 
+    const existence: IndicatorExistence = {
+      hasVisibleChange: changedPixelCount >= MIN_CHANGED_PIXELS,
+      changedPixelCount,
+      diffImagePath,
+    };
+
     results.push({
       selector: info.selector,
       tag: info.tag,
-      existence: {
-        hasVisibleChange: changedPixelCount >= MIN_CHANGED_PIXELS,
-        changedPixelCount,
-        diffImagePath,
-      },
+      existence,
       cssAnalysis,
       contrast,
       area,
+      score: computeVisibilityScore(existence, contrast, area),
     });
 
     await refocus(page, info.selector);
