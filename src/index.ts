@@ -12,12 +12,19 @@ import {
   scanStylesheetsForOutlineRemoval,
 } from "./modules/visibility";
 import { analyzeInteractiveCoverage } from "./modules/coverage";
-import { TabStop } from "./types";
+import {
+  generateM1Issues,
+  generateM2Issues,
+  generateM3Issues,
+  buildReportData,
+  writeJsonReport,
+  writeHtmlReport,
+} from "./reports/generator";
+import { TabStop, ReportIssue } from "./types";
 import * as path from "path";
 
 /**
  * Deduplicate tab stops by selector, keeping the first occurrence.
- * Preserves the original index so results can map back to forwardStops.
  */
 function deduplicateStops(stops: TabStop[]): TabStop[] {
   const seen = new Set<string>();
@@ -39,13 +46,17 @@ async function main() {
     process.exit(1);
   }
 
+  const startTime = Date.now();
   console.log(`Evaluating: ${url}`);
 
   const { browser, page } = await launchAndNavigate(url);
 
   try {
-    // Inject shared helper functions into the page context
     await injectHelpers(page);
+
+    // ============================================================
+    // MODULE 1: Focus Traversal & Order Analysis
+    // ============================================================
 
     // M1-01: Forward traversal
     const forwardStops = await recordTabStops(page, "forward");
@@ -57,7 +68,7 @@ async function main() {
     }
     if (uniqueStops.length < forwardStops.length) {
       console.log(
-        `  ... ${forwardStops.length - uniqueStops.length} duplicate stops omitted (likely from keyboard traps)`
+        `  ... ${forwardStops.length - uniqueStops.length} duplicate stops omitted`
       );
     }
 
@@ -85,9 +96,7 @@ async function main() {
         console.log(
           `✗ ${trap.isTrap ? "TRAP CONFIRMED" : "Suspected trap (escapable)"} at ${trap.location}`
         );
-        console.log(
-          `  Trapped elements: ${trap.trappedElements.join(", ")}`
-        );
+        console.log(`  Trapped elements: ${trap.trappedElements.join(", ")}`);
         for (const attempt of trap.escapeAttempts) {
           console.log(
             `  ${attempt.escaped ? "✓" : "✗"} ${attempt.key}: ${attempt.escaped ? "escaped" : "still trapped"}`
@@ -96,12 +105,10 @@ async function main() {
       }
     }
 
-    // M1-03: Focus order analysis (uses unique stops — duplicates skew correlation)
+    // M1-03: Focus order analysis
     console.log("\nAnalyzing focus order vs. visual layout...");
     const focusOrder = analyzeFocusOrder(uniqueStops);
-    console.log(
-      `  Correlation score: ${focusOrder.correlationScore} (1.0 = perfect match)`
-    );
+    console.log(`  Correlation score: ${focusOrder.correlationScore} (1.0 = perfect match)`);
 
     if (focusOrder.violations.length === 0) {
       console.log("  ✓ No focus order violations detected.");
@@ -111,9 +118,7 @@ async function main() {
         if (v.direction === "other") {
           console.log(`  ⚠ tabindex > 0 on ${v.fromElement}`);
         } else {
-          console.log(
-            `  ⚠ ${v.direction}: ${v.fromElement} → ${v.toElement} (${v.jumpDistance}px jump)`
-          );
+          console.log(`  ⚠ ${v.direction}: ${v.fromElement} → ${v.toElement} (${v.jumpDistance}px jump)`);
         }
       }
     }
@@ -125,16 +130,12 @@ async function main() {
     if (!skipLink.exists) {
       console.log("  ✗ No skip link found.");
     } else if (skipLink.targetReachable) {
-      console.log(
-        `  ✓ Skip link found and works (target: ${skipLink.targetSelector})`
-      );
+      console.log(`  ✓ Skip link found and works (target: ${skipLink.targetSelector})`);
     } else {
-      console.log(
-        `  ⚠ Skip link found but target is not reachable (target: ${skipLink.targetSelector})`
-      );
+      console.log(`  ⚠ Skip link found but target is not reachable (target: ${skipLink.targetSelector})`);
     }
 
-    // M1-05: Focus not obscured detection (use unique stops to avoid redundant work)
+    // M1-05: Focus not obscured detection
     console.log(`\nChecking for obscured focus (${uniqueStops.length} elements)...`);
     const obscured = await detectObscured(page, uniqueStops, (current, total) => {
       process.stdout.write(`\r  Progress: ${current}/${total}`);
@@ -147,14 +148,10 @@ async function main() {
       const stop = uniqueStops.find(s => s.index === idx);
       if (result.fullyObscured) {
         obscuredCount++;
-        console.log(
-          `  ✗ [${idx}] ${stop?.selector} — fully obscured by ${result.obscuringElement}`
-        );
+        console.log(`  ✗ [${idx}] ${stop?.selector} — fully obscured by ${result.obscuringElement}`);
       } else if (result.partiallyObscured) {
         partialCount++;
-        console.log(
-          `  ⚠ [${idx}] ${stop?.selector} — ${result.overlapPercent}% obscured by ${result.obscuringElement}`
-        );
+        console.log(`  ⚠ [${idx}] ${stop?.selector} — ${result.overlapPercent}% obscured by ${result.obscuringElement}`);
       }
     }
     if (obscuredCount === 0 && partialCount === 0) {
@@ -171,7 +168,7 @@ async function main() {
     console.log("MODULE 2: Focus Indicator Visibility Analysis");
     console.log("=".repeat(60));
 
-    // M2-02 Part B: Stylesheet scan (runs once, before traversal)
+    // M2-02 Part B: Stylesheet scan
     console.log("\nM2-02b: Scanning stylesheets for outline removal...");
     const outlineOverrides = await scanStylesheetsForOutlineRemoval(page);
 
@@ -180,22 +177,18 @@ async function main() {
     } else {
       for (const rule of outlineOverrides) {
         if (rule.hasReplacement) {
-          console.log(
-            `  ⚠ ${rule.selectorText} removes outline but has replacement: ${rule.replacementProperties.join(", ")} (${rule.source})`
-          );
+          console.log(`  ⚠ ${rule.selectorText} removes outline but has replacement: ${rule.replacementProperties.join(", ")} (${rule.source})`);
         } else {
-          console.log(
-            `  ✗ ${rule.selectorText} removes outline with NO replacement (${rule.source})`
-          );
+          console.log(`  ✗ ${rule.selectorText} removes outline with NO replacement (${rule.source})`);
         }
       }
     }
 
-    // M2-01 + M2-02 Part A + M2-03 + M2-04: Combined traversal pass
+    // M2-01 + M2-02a + M2-03 + M2-04: Combined traversal
     console.log("\nM2-01/M2-02a/M2-03/M2-04: Checking focus indicators...");
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const outputDir = path.join("output", `m2-${timestamp}`);
+    const outputDir = path.join("output", `run-${timestamp}`);
 
     const indicatorResults = await analyzeIndicators(
       page,
@@ -220,21 +213,14 @@ async function main() {
     let scoreTotal = 0;
 
     for (const result of indicatorResults) {
-      // M2-01: Existence
       const existLabel = result.existence.hasVisibleChange
         ? `✓ ${result.existence.changedPixelCount}px changed`
         : `✗ NO visible indicator (${result.existence.changedPixelCount}px)`;
+      if (result.existence.hasVisibleChange) hasIndicatorCount++;
+      else noIndicatorCount++;
 
-      if (result.existence.hasVisibleChange) {
-        hasIndicatorCount++;
-      } else {
-        noIndicatorCount++;
-      }
-
-      // M2-02: CSS changes
       const changeCount = result.cssAnalysis.computedChanges.length;
       if (changeCount > 0) styleChangeCount++;
-
       const cssLabel = changeCount > 0
         ? `${changeCount} CSS change(s): ${result.cssAnalysis.computedChanges.map(c => c.property).join(", ")}`
         : "no CSS changes";
@@ -248,7 +234,6 @@ async function main() {
         outlineNeverCount++;
       }
 
-      // M2-03: Contrast ratio
       let contrastLabel: string;
       if (!result.existence.hasVisibleChange) {
         contrastLabel = "n/a (no visible change)";
@@ -260,7 +245,6 @@ async function main() {
         contrastFailCount++;
       }
 
-      // M2-04: Area measurement
       let areaLabel: string;
       if (!result.existence.hasVisibleChange) {
         areaLabel = "n/a (no visible change)";
@@ -272,47 +256,26 @@ async function main() {
         areaFailCount++;
       }
 
-      console.log(
-        `  <${result.tag}> ${result.selector}`
-      );
-      console.log(
-        `    M2-01: ${existLabel}`
-      );
-      console.log(
-        `    M2-02: ${cssLabel}${outlineWarning}`
-      );
-      console.log(
-        `    M2-03: ${contrastLabel}`
-      );
-      console.log(
-        `    M2-04: ${areaLabel}`
-      );
-      console.log(
-        `    M2-05: ${result.score.score}/100 (${result.score.level})`
-      );
+      console.log(`  <${result.tag}> ${result.selector}`);
+      console.log(`    M2-01: ${existLabel}`);
+      console.log(`    M2-02: ${cssLabel}${outlineWarning}`);
+      console.log(`    M2-03: ${contrastLabel}`);
+      console.log(`    M2-04: ${areaLabel}`);
+      console.log(`    M2-05: ${result.score.score}/100 (${result.score.level})`);
 
       scoreCounts[result.score.level]++;
       scoreTotal += result.score.score;
     }
 
-    console.log(
-      `\n  M2-01 Summary: ${hasIndicatorCount} with indicator, ${noIndicatorCount} without`
-    );
-    console.log(
-      `  M2-02 Summary: ${styleChangeCount} with CSS changes, ${outlineRemovedCount} outline actively removed, ${outlineNeverCount} outline never present`
-    );
-    console.log(
-      `  M2-03 Summary: ${contrastPassCount} pass (median ≥ 3:1), ${contrastFailCount} fail`
-    );
-    console.log(
-      `  M2-04 Summary: ${areaPassCount} pass (area ratio ≥ 1.0), ${areaFailCount} fail`
-    );
     const avgScore = indicatorResults.length > 0
       ? Math.round(scoreTotal / indicatorResults.length)
       : 0;
-    console.log(
-      `  M2-05 Summary: avg ${avgScore}/100 | ${scoreCounts.excellent} excellent, ${scoreCounts.good} good, ${scoreCounts.partial} partial, ${scoreCounts.poor} poor, ${scoreCounts.none} none`
-    );
+
+    console.log(`\n  M2-01 Summary: ${hasIndicatorCount} with indicator, ${noIndicatorCount} without`);
+    console.log(`  M2-02 Summary: ${styleChangeCount} with CSS changes, ${outlineRemovedCount} outline actively removed, ${outlineNeverCount} outline never present`);
+    console.log(`  M2-03 Summary: ${contrastPassCount} pass (median ≥ 3:1), ${contrastFailCount} fail`);
+    console.log(`  M2-04 Summary: ${areaPassCount} pass (area ratio ≥ 1.0), ${areaFailCount} fail`);
+    console.log(`  M2-05 Summary: avg ${avgScore}/100 | ${scoreCounts.excellent} excellent, ${scoreCounts.good} good, ${scoreCounts.partial} partial, ${scoreCounts.poor} poor, ${scoreCounts.none} none`);
     console.log(`  Diff images saved to: ${outputDir}`);
 
     // ============================================================
@@ -323,8 +286,6 @@ async function main() {
     console.log("MODULE 3: Interactive Element Coverage");
     console.log("=".repeat(60));
 
-    // Build the full set of keyboard-reachable selectors from both M1 and M2.
-    // M1 may miss elements beyond a keyboard trap; M2 does its own traversal.
     const m2ReachableSelectors = indicatorResults.map((r) => r.selector);
 
     const m3Results = await analyzeInteractiveCoverage(
@@ -337,61 +298,46 @@ async function main() {
     );
     process.stdout.write("\n");
 
-    // M3-01: Coverage Gap
+    // M3-01
     console.log("\nM3-01: Pointer-Interactive vs. Keyboard-Reachable Gap");
     console.log(
       `  Total interactive: ${m3Results.coverageGap.totalInteractive} | ` +
       `Keyboard-reachable: ${m3Results.coverageGap.totalReachable} | ` +
       `Coverage: ${m3Results.coverageGap.coveragePercent}%`
     );
-
     if (m3Results.coverageGap.unreachableElements.length === 0) {
       console.log("  ✓ All interactive elements are keyboard-reachable.");
     } else {
-      console.log(
-        `  ✗ ${m3Results.coverageGap.unreachableElements.length} unreachable element(s):`
-      );
+      console.log(`  ✗ ${m3Results.coverageGap.unreachableElements.length} unreachable element(s):`);
       for (const el of m3Results.coverageGap.unreachableElements) {
         const signals: string[] = [];
         if (el.hasClickHandler) signals.push("click handler");
         if (el.hasCursorPointer) signals.push("cursor:pointer");
         if (el.role) signals.push(`role="${el.role}"`);
-        console.log(
-          `    ✗ <${el.tag}> ${el.selector} [${signals.join(", ")}]`
-        );
+        console.log(`    ✗ <${el.tag}> ${el.selector} [${signals.join(", ")}]`);
       }
     }
 
-    // M3-02: Non-Semantic Controls
+    // M3-02
     console.log("\nM3-02: Non-Semantic Interactive Element Detection");
-
     if (m3Results.nonSemanticControls.length === 0) {
       console.log("  ✓ No inaccessible non-semantic controls found.");
     } else {
-      console.log(
-        `  ✗ ${m3Results.nonSemanticControls.length} non-semantic control(s) with issues:`
-      );
+      console.log(`  ✗ ${m3Results.nonSemanticControls.length} non-semantic control(s) with issues:`);
       for (const ctrl of m3Results.nonSemanticControls) {
         const attrs: string[] = [];
-        if (ctrl.hasTabindex) attrs.push("tabindex ✓");
-        else attrs.push("tabindex ✗");
-        if (ctrl.hasRole) attrs.push("role ✓");
-        else attrs.push("role ✗");
-        if (ctrl.hasKeyHandler) attrs.push("key handler ✓");
-        else attrs.push("key handler ✗");
-
-        console.log(
-          `    ✗ <${ctrl.tag}> ${ctrl.selector} [${attrs.join(", ")}]`
-        );
+        attrs.push(ctrl.hasTabindex ? "tabindex ✓" : "tabindex ✗");
+        attrs.push(ctrl.hasRole ? "role ✓" : "role ✗");
+        attrs.push(ctrl.hasKeyHandler ? "key handler ✓" : "key handler ✗");
+        console.log(`    ✗ <${ctrl.tag}> ${ctrl.selector} [${attrs.join(", ")}]`);
         for (const issue of ctrl.issues) {
           console.log(`      → ${issue}`);
         }
       }
     }
 
-    // M3-03: Scrollable Regions
+    // M3-03
     console.log("\nM3-03: Scrollable Region Keyboard Access");
-
     if (m3Results.scrollableRegions.length === 0) {
       console.log("  ✓ No scrollable regions found (or none with overflow).");
     } else {
@@ -400,24 +346,52 @@ async function main() {
         const isAccessible = region.isFocusable || region.hasFocusableChild;
         if (!isAccessible) {
           inaccessibleScrollCount++;
-          console.log(
-            `  ✗ ${region.selector} — scrollable (${region.scrollHeight}px content in ${region.clientHeight}px container) but NOT keyboard-accessible`
-          );
+          console.log(`  ✗ ${region.selector} — scrollable but NOT keyboard-accessible`);
         } else {
-          const method = region.isFocusable
-            ? "focusable container"
-            : "has focusable child";
-          console.log(
-            `  ✓ ${region.selector} — scrollable, accessible via ${method}`
-          );
+          const method = region.isFocusable ? "focusable container" : "has focusable child";
+          console.log(`  ✓ ${region.selector} — scrollable, accessible via ${method}`);
         }
       }
       if (inaccessibleScrollCount === 0) {
         console.log("  ✓ All scrollable regions are keyboard-accessible.");
-      } else {
-        console.log(`  ${inaccessibleScrollCount} inaccessible scrollable region(s).`);
       }
     }
+
+    // ============================================================
+    // REPORT GENERATION
+    // ============================================================
+
+    console.log("\n" + "=".repeat(60));
+    console.log("REPORT");
+    console.log("=".repeat(60));
+
+    const allIssues: ReportIssue[] = [
+      ...generateM1Issues(
+        forwardStops, uniqueStops, backwardStops, uniqueBackward,
+        traps, focusOrder, skipLink, obscured, uniqueStops
+      ),
+      ...generateM2Issues(indicatorResults, outlineOverrides),
+      ...generateM3Issues(
+        m3Results.coverageGap,
+        m3Results.nonSemanticControls,
+        m3Results.scrollableRegions
+      ),
+    ];
+
+    const report = buildReportData(
+      url, startTime, allIssues,
+      uniqueStops.length,
+      avgScore,
+      m3Results.coverageGap.coveragePercent
+    );
+
+    const jsonPath = writeJsonReport(report, outputDir);
+    const htmlPath = writeHtmlReport(report, outputDir);
+
+    console.log(`\n  ${allIssues.length} issues total: ${report.summary.criticalCount} critical, ${report.summary.warningCount} warning, ${report.summary.moderateCount} moderate, ${report.summary.infoCount} info`);
+    console.log(`  JSON report: ${jsonPath}`);
+    console.log(`  HTML report: ${htmlPath}`);
+    console.log(`  Duration: ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
 
   } finally {
     await browser.close();
