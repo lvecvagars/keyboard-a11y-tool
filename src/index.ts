@@ -190,8 +190,8 @@ async function main() {
       }
     }
 
-    // M2-01 + M2-02 Part A + M2-03: Combined traversal pass
-    console.log("\nM2-01/M2-02a/M2-03: Checking focus indicators...");
+    // M2-01 + M2-02 Part A + M2-03 + M2-04: Combined traversal pass
+    console.log("\nM2-01/M2-02a/M2-03/M2-04: Checking focus indicators...");
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const outputDir = path.join("output", `m2-${timestamp}`);
@@ -213,6 +213,8 @@ async function main() {
     let styleChangeCount = 0;
     let contrastFailCount = 0;
     let contrastPassCount = 0;
+    let areaPassCount = 0;
+    let areaFailCount = 0;
 
     for (const result of indicatorResults) {
       // M2-01: Existence
@@ -255,6 +257,18 @@ async function main() {
         contrastFailCount++;
       }
 
+      // M2-04: Area measurement
+      let areaLabel: string;
+      if (!result.existence.hasVisibleChange) {
+        areaLabel = "n/a (no visible change)";
+      } else if (result.area.areaRatio >= 1) {
+        areaLabel = `✓ ${result.area.qualifyingPixelCount}px qualifying, ${result.area.minimumRequiredArea}px required (ratio ${result.area.areaRatio}), ${Math.round(result.area.perimeterCoverage * 100)}% perimeter`;
+        areaPassCount++;
+      } else {
+        areaLabel = `✗ ${result.area.qualifyingPixelCount}px qualifying, ${result.area.minimumRequiredArea}px required (ratio ${result.area.areaRatio}), ${Math.round(result.area.perimeterCoverage * 100)}% perimeter`;
+        areaFailCount++;
+      }
+
       console.log(
         `  <${result.tag}> ${result.selector}`
       );
@@ -267,6 +281,9 @@ async function main() {
       console.log(
         `    M2-03: ${contrastLabel}`
       );
+      console.log(
+        `    M2-04: ${areaLabel}`
+      );
     }
 
     console.log(
@@ -277,6 +294,9 @@ async function main() {
     );
     console.log(
       `  M2-03 Summary: ${contrastPassCount} pass (median ≥ 3:1), ${contrastFailCount} fail`
+    );
+    console.log(
+      `  M2-04 Summary: ${areaPassCount} pass (area ratio ≥ 1.0), ${areaFailCount} fail`
     );
     console.log(`  Diff images saved to: ${outputDir}`);
 

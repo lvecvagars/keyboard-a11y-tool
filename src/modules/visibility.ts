@@ -3,8 +3,8 @@ import { PNG } from "pngjs";
 import pixelmatch from "pixelmatch";
 import * as fs from "fs";
 import * as path from "path";
-import { IndicatorExistence, CSSFocusStyle, ComputedStyleChange, OutlineState, IndicatorContrast } from "../types";
-import { computeContrastFromDiff } from "./contrast";
+import { IndicatorExistence, CSSFocusStyle, ComputedStyleChange, OutlineState, IndicatorContrast, IndicatorArea } from "../types";
+import { computeContrastAndArea } from "./contrast";
 
 // ---- Configuration ----
 
@@ -158,7 +158,6 @@ async function readFocusStyles(page: Page): Promise<Record<string, string> | nul
     const result: Record<string, string> = {};
     for (const prop of properties) {
       result[prop] = styles.getPropertyValue(
-        // Convert camelCase to kebab-case for getPropertyValue
         prop.replace(/([A-Z])/g, "-$1").toLowerCase()
       );
     }
@@ -167,7 +166,7 @@ async function readFocusStyles(page: Page): Promise<Record<string, string> | nul
 }
 
 /**
- * Read computed styles for a specific clip region's element (unfocused state).
+ * Read computed styles for a specific element by selector (unfocused state).
  * We need to read styles from the element that *was* focused, but is now blurred.
  * Since blur moves focus away, we pass the selector to re-query the element.
  */
@@ -223,7 +222,6 @@ function compareStyles(
   const unfocusedOutlineGone =
     unfocusedOutlineStyle === "none" || unfocusedOutlineWidth === "0px";
 
-  // Check if any replacement property changed between states
   const replacements: string[] = [];
   for (const rProp of REPLACEMENT_PROPERTIES) {
     const fVal = focused[rProp] ?? "";
@@ -233,19 +231,12 @@ function compareStyles(
     }
   }
 
-  // Determine outline state:
-  // - "removed": outline was present unfocused but gone on focus (active suppression)
-  // - "never":   outline is none in both states and no replacement exists (missing focus style)
-  // - "present": outline exists on focus (normal behavior)
-  // - "replaced": outline is gone on focus but a replacement property compensates
   let outlineState: OutlineState;
   if (!focusedOutlineGone) {
     outlineState = "present";
   } else if (!unfocusedOutlineGone) {
-    // Had outline unfocused, lost it on focus — active suppression
     outlineState = replacements.length > 0 ? "replaced" : "removed";
   } else {
-    // No outline in either state
     outlineState = replacements.length > 0 ? "replaced" : "never";
   }
 
@@ -263,15 +254,20 @@ function compareStyles(
 async function getActiveElementInfo(page: Page): Promise<{
   selector: string;
   tag: string;
+  width: number;
+  height: number;
 } | null> {
   return page.evaluate(() => {
     const el = document.activeElement;
     if (!el || el === document.body || el === document.documentElement) return null;
 
     const tag = el.tagName.toLowerCase();
+    const rect = el.getBoundingClientRect();
+    const width = rect.width;
+    const height = rect.height;
 
     // Strategy 1: ID
-    if (el.id) return { selector: "#" + el.id, tag };
+    if (el.id) return { selector: "#" + el.id, tag, width, height };
 
     // Strategy 2: Unique attribute-based selector
     const attrs: [string, string | null][] = [
@@ -287,7 +283,7 @@ async function getActiveElementInfo(page: Page): Promise<{
         const candidate = tag + "[" + attr + '="' + escaped + '"]';
         try {
           if (document.querySelectorAll(candidate).length === 1) {
-            return { selector: candidate, tag };
+            return { selector: candidate, tag, width, height };
           }
         } catch { /* skip */ }
       }
@@ -297,7 +293,7 @@ async function getActiveElementInfo(page: Page): Promise<{
     if (tag.includes("-")) {
       try {
         if (document.querySelectorAll(tag).length === 1) {
-          return { selector: tag, tag };
+          return { selector: tag, tag, width, height };
         }
       } catch { /* skip */ }
     }
@@ -323,7 +319,7 @@ async function getActiveElementInfo(page: Page): Promise<{
       parts.unshift(part);
       cur = cur.parentElement;
     }
-    return { selector: parts.join(" > "), tag };
+    return { selector: parts.join(" > "), tag, width, height };
   });
 }
 
@@ -331,25 +327,15 @@ async function getActiveElementInfo(page: Page): Promise<{
 
 /** A rule in a stylesheet that removes outline on :focus without replacement */
 export interface OutlineOverrideRule {
-  /** The full CSS selector text (e.g. "a:focus", "*:focus-visible") */
   selectorText: string;
-  /** Which stylesheet it came from (href or "inline") */
   source: string;
-  /** Whether a replacement property was found in the same rule */
   hasReplacement: boolean;
-  /** Which replacement properties were found, if any */
   replacementProperties: string[];
 }
 
 /**
  * M2-02 Part B: Scan all stylesheets for rules that remove outline on
  * :focus or :focus-visible without providing a replacement.
- *
- * This catches the common pattern:
- *   *:focus { outline: none; }
- *   a:focus { outline: 0; }
- *
- * Cross-origin stylesheets will throw on .cssRules access — we skip those.
  */
 export async function scanStylesheetsForOutlineRemoval(
   page: Page
@@ -365,7 +351,6 @@ export async function scanStylesheetsForOutlineRemoval(
       try {
         rules = sheet.cssRules;
       } catch {
-        // Cross-origin stylesheet — can't read rules
         continue;
       }
 
@@ -375,13 +360,10 @@ export async function scanStylesheetsForOutlineRemoval(
 
         const sel = rule.selectorText;
         if (!sel) continue;
-
-        // Only interested in rules targeting :focus or :focus-visible
         if (!sel.includes(":focus")) continue;
 
         const style = rule.style;
 
-        // Check if this rule removes outline
         const outlineVal = style.getPropertyValue("outline").trim().toLowerCase();
         const outlineStyleVal = style.getPropertyValue("outline-style").trim().toLowerCase();
         const outlineWidthVal = style.getPropertyValue("outline-width").trim().toLowerCase();
@@ -396,7 +378,6 @@ export async function scanStylesheetsForOutlineRemoval(
 
         if (!removesOutline) continue;
 
-        // Check if the same rule provides a replacement
         const foundReplacements: string[] = [];
         for (const rProp of replacementProps) {
           const kebab = rProp.replace(/([A-Z])/g, "-$1").toLowerCase();
@@ -419,13 +400,21 @@ export async function scanStylesheetsForOutlineRemoval(
   }, [...REPLACEMENT_PROPERTIES]);
 }
 
-// ---- Combined M2-01 + M2-02 + M2-03 Analysis ----
+// ---- Combined M2-01 + M2-02 + M2-03 + M2-04 Analysis ----
 
 /** Default contrast result for elements where screenshots couldn't be captured */
 const NO_CONTRAST: IndicatorContrast = {
   medianContrast: 1,
   minContrast: 1,
   percentMeeting3to1: 0,
+};
+
+/** Default area result for elements where screenshots couldn't be captured */
+const NO_AREA: IndicatorArea = {
+  qualifyingPixelCount: 0,
+  minimumRequiredArea: 0,
+  areaRatio: 0,
+  perimeterCoverage: 0,
 };
 
 /** Result for a single element from the combined M2 pass */
@@ -435,15 +424,18 @@ export interface IndicatorAnalysis {
   existence: IndicatorExistence;
   cssAnalysis: CSSFocusStyle;
   contrast: IndicatorContrast;
+  area: IndicatorArea;
 }
 
 /**
- * Combined M2-01 + M2-02 + M2-03: Analyze focus indicators by tabbing through the page.
+ * Combined M2-01 + M2-02 + M2-03 + M2-04: Analyze focus indicators by
+ * tabbing through the page.
  *
  * Single traversal pass that collects:
  *   - M2-01: Screenshot diff (focus indicator existence)
  *   - M2-02 Part A: Computed style comparison (CSS focus style changes)
  *   - M2-03: Contrast ratio between focused and unfocused pixel colors
+ *   - M2-04: Area measurement and perimeter coverage of qualifying pixels
  *
  * For each focused element:
  *   1. Read computed styles while focused
@@ -452,7 +444,7 @@ export interface IndicatorAnalysis {
  *   4. Read computed styles while unfocused
  *   5. Capture unfocused screenshot
  *   6. Diff screenshots (M2-01)
- *   7. Compute contrast ratios on changed pixels (M2-03)
+ *   7. Compute contrast and area on changed pixels (M2-03 + M2-04)
  *   8. Diff computed styles (M2-02)
  *
  * M2-02 Part B (stylesheet scan) runs separately via scanStylesheetsForOutlineRemoval().
@@ -476,6 +468,9 @@ export async function analyzeIndicators(
     (document.activeElement as HTMLElement)?.blur();
     document.body.focus();
   });
+
+  // Get devicePixelRatio once — needed for M2-04 area calculation
+  const devicePixelRatio = await page.evaluate(() => window.devicePixelRatio) || 1;
 
   for (let i = 0; i < MAX_TAB_PRESSES; i++) {
     await page.keyboard.press("Tab");
@@ -530,8 +525,8 @@ export async function analyzeIndicators(
         existence: { hasVisibleChange: false, changedPixelCount: 0, diffImagePath: "" },
         cssAnalysis,
         contrast: NO_CONTRAST,
+        area: NO_AREA,
       });
-      // Re-focus for next iteration
       await refocus(page, info.selector);
       continue;
     }
@@ -546,6 +541,7 @@ export async function analyzeIndicators(
         existence: { hasVisibleChange: false, changedPixelCount: 0, diffImagePath: "" },
         cssAnalysis,
         contrast: NO_CONTRAST,
+        area: NO_AREA,
       });
       await refocus(page, info.selector);
       continue;
@@ -561,6 +557,7 @@ export async function analyzeIndicators(
         existence: { hasVisibleChange: false, changedPixelCount: 0, diffImagePath: "" },
         cssAnalysis,
         contrast: NO_CONTRAST,
+        area: NO_AREA,
       });
       await refocus(page, info.selector);
       continue;
@@ -578,11 +575,15 @@ export async function analyzeIndicators(
       { threshold: DIFF_THRESHOLD }
     );
 
-    // ---- M2-03: Contrast ratio on changed pixels ----
-    const contrast = computeContrastFromDiff(
+    // ---- M2-03 + M2-04: Contrast ratio and area measurement ----
+    const { contrast, area } = computeContrastAndArea(
       focusedPng,
       unfocusedPng,
-      changedPixelCount
+      changedPixelCount,
+      info.width,
+      info.height,
+      SCREENSHOT_PADDING,
+      devicePixelRatio
     );
 
     // ---- Save images ----
@@ -616,6 +617,7 @@ export async function analyzeIndicators(
       },
       cssAnalysis,
       contrast,
+      area,
     });
 
     await refocus(page, info.selector);
