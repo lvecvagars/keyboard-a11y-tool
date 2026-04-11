@@ -70,14 +70,60 @@ export interface EvaluationResult {
  * @param onProgress - Called with human-readable status messages during the run
  * @returns The completed report data and file paths
  */
+/**
+ * Normalize a URL: prepend https:// if no protocol is given,
+ * and do a basic format check.
+ */
+function normalizeUrl(raw: string): string {
+  let url = raw.trim();
+  if (!url) throw new Error("URL is empty");
+
+  // Prepend https:// if no protocol
+  if (!/^https?:\/\//i.test(url)) {
+    url = "https://" + url;
+  }
+
+  // Basic validity check
+  try {
+    new URL(url);
+  } catch {
+    throw new Error(`Invalid URL: "${raw}". Please enter a valid web address.`);
+  }
+
+  return url;
+}
+
 export async function runEvaluation(
-  url: string,
+  rawUrl: string,
   onProgress: ProgressCallback = () => {}
 ): Promise<EvaluationResult> {
+  const url = normalizeUrl(rawUrl);
   const startTime = Date.now();
 
   onProgress("Launching browser and navigating to page...");
-  const { browser, page } = await launchAndNavigate(url);
+
+  let browserContext;
+  try {
+    browserContext = await launchAndNavigate(url);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Translate common Playwright navigation errors into clear messages
+    if (msg.includes("ERR_NAME_NOT_RESOLVED") || msg.includes("getaddrinfo")) {
+      throw new Error(`Could not resolve hostname. Check that "${url}" is a valid, reachable address.`);
+    }
+    if (msg.includes("ERR_CONNECTION_REFUSED")) {
+      throw new Error(`Connection refused by "${url}". The server may be down or not accepting connections.`);
+    }
+    if (msg.includes("ERR_CERT") || msg.includes("SSL")) {
+      throw new Error(`SSL/certificate error for "${url}". The site may have an invalid or expired certificate.`);
+    }
+    if (msg.includes("Timeout") || msg.includes("timeout")) {
+      throw new Error(`Page load timed out for "${url}". The site may be too slow or unresponsive.`);
+    }
+    throw new Error(`Failed to load "${url}": ${msg}`);
+  }
+
+  const { browser, page } = browserContext;
 
   try {
     await injectHelpers(page);
