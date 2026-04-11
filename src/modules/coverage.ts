@@ -28,6 +28,18 @@ const NON_SEMANTIC_TAGS = new Set([
   "section", "article", "header", "footer", "nav", "label",
 ]);
 
+/**
+ * Extract the actual element tag from a CSS selector string.
+ * For path selectors like "body > header > ul > li:nth-of-type(2)",
+ * we want the LAST segment's tag, not the first.
+ */
+function extractTagFromSelector(selector: string): string {
+  const segments = selector.split(">").map(s => s.trim());
+  const lastSegment = segments[segments.length - 1] || "";
+  const tag = lastSegment.split(/[.#\[:]/)[0].trim();
+  return tag || "div";
+}
+
 const INTERACTIVE_ARIA_ROLES = new Set([
   "button", "link", "tab", "menuitem", "menuitemcheckbox", "menuitemradio",
   "option", "switch", "checkbox", "radio", "treeitem", "gridcell",
@@ -485,7 +497,7 @@ export async function analyzeInteractiveCoverage(
     if (!candidateMap.has(sel) && clickListeners.has(sel)) {
       candidateMap.set(sel, {
         selector: sel,
-        tag: sel.split(/[.#\[:> ]/)[0] || "div",
+        tag: extractTagFromSelector(sel),
         role: null,
         hasOnclick: false, hasCursorPointer: false,
         hasInteractiveRole: false, hasTabindex: false, tabindexValue: null,
