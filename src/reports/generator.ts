@@ -128,6 +128,7 @@ export function generateM1Issues(
         elementSelector: stop?.selector || `tab-stop-${idx}`,
         description: `Focused element is fully obscured (100%) by ${result.obscuringElement}.`,
         remediation: "Ensure focused elements are not hidden behind fixed or sticky positioned elements. Use scroll-padding-top or scroll-margin-top to offset content below sticky headers. Dismiss or reposition overlays (cookie banners, chat widgets) when they obscure focused content.",
+        screenshotPath: result.screenshotPath,
       });
     } else if (result.partiallyObscured) {
       issues.push({
@@ -137,6 +138,7 @@ export function generateM1Issues(
         elementSelector: stop?.selector || `tab-stop-${idx}`,
         description: `Focused element is ${result.overlapPercent}% obscured by ${result.obscuringElement}.`,
         remediation: "Ensure focused elements are not partially hidden behind fixed or sticky positioned elements. Use scroll-padding or adjust layout so focused elements remain fully visible.",
+        screenshotPath: result.screenshotPath,
       });
     }
   }
@@ -446,9 +448,17 @@ export function writeHtmlReport(report: ReportData, outputDir: string): string {
 
       const screenshotHtml = issue.screenshotPath
         ? (() => {
-            const diffFile = path.basename(issue.screenshotPath);
-            const focusedFile = diffFile.replace("_diff.png", "_focused.png");
-            const unfocusedFile = diffFile.replace("_diff.png", "_unfocused.png");
+            const fileName = path.basename(issue.screenshotPath);
+            if (issue.checkId === "M1-05") {
+              // M1-05: Single viewport screenshot showing the obscured element
+              return `<div class="screenshot-row">
+  <div class="screenshot-label">Viewport showing obscured focus</div>
+  <img src="${escapeHtml(fileName)}" alt="Viewport screenshot showing focused element obscured by overlay" loading="lazy">
+</div>`;
+            }
+            // M2: Triple screenshot (unfocused / focused / diff)
+            const focusedFile = fileName.replace("_diff.png", "_focused.png");
+            const unfocusedFile = fileName.replace("_diff.png", "_unfocused.png");
             return `<div class="screenshot-pair">
   <div class="screenshot-item">
     <div class="screenshot-label">Unfocused</div>
@@ -460,7 +470,7 @@ export function writeHtmlReport(report: ReportData, outputDir: string): string {
   </div>
   <div class="screenshot-item">
     <div class="screenshot-label">Difference</div>
-    <img src="${escapeHtml(diffFile)}" alt="Pixel difference showing focus indicator" loading="lazy">
+    <img src="${escapeHtml(fileName)}" alt="Pixel difference showing focus indicator" loading="lazy">
   </div>
 </div>`;
           })()

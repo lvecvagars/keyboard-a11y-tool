@@ -89,6 +89,8 @@ export interface ObscuredResult {
   obscuringElement: string | null;
   /** Whether the focused element is within the viewport at all */
   focusedInViewport: boolean;
+  /** Path to a viewport screenshot showing the obscured state, if captured */
+  screenshotPath?: string;
 }
 
 /** Combined output of Module 1 */

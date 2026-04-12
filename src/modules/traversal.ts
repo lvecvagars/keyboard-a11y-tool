@@ -1,3 +1,5 @@
+import * as fs from "fs";
+import * as path from "path";
 import { Page } from "playwright";
 import {
   TabStop,
@@ -528,39 +530,67 @@ export function analyzeFocusOrder(stops: TabStop[]): FocusOrderResult {
 /**
  * M1-05: Focus Not Obscured Detection
  *
- * For each tab stop, checks whether it is obscured by fixed or sticky
- * positioned elements (headers, footers, cookie banners, etc.).
- * Also checks whether the focused element is within the viewport.
+ * Tabs through the page using real Tab presses (matching actual keyboard
+ * navigation) and checks at each stop whether the focused element is
+ * obscured by fixed/sticky elements. This avoids false positives from
+ * page.focus() which doesn't trigger blur/close events on previous elements.
+ *
+ * When an obscured element is detected, captures a full viewport
+ * screenshot showing the element hidden behind the overlay.
  */
 export async function detectObscured(
   page: Page,
   stops: TabStop[],
+  outputDir: string | null = null,
   onProgress?: (current: number, total: number) => void
 ): Promise<Map<number, ObscuredResult>> {
   const results = new Map<number, ObscuredResult>();
   const viewportHeight = 720;
   const viewportWidth = 1280;
 
-  for (const stop of stops) {
-    onProgress?.(stops.indexOf(stop) + 1, stops.length);
-    try {
-      await page.focus(stop.selector);
-    } catch {
-      results.set(stop.index, {
+  // Reset focus to start of page
+  await page.evaluate(() => {
+    (document.activeElement as HTMLElement)?.blur();
+    document.body.focus();
+  });
+
+  const stopSelectors = stops.map(s => s.selector);
+  let stopIdx = 0;
+
+  for (let tabPress = 0; tabPress < MAX_TAB_PRESSES && stopIdx < stops.length; tabPress++) {
+    await page.keyboard.press("Tab");
+    await page.waitForTimeout(50);
+
+    // Check what element is currently focused
+    const currentSelector = await page.evaluate(() => {
+      const el = document.activeElement;
+      if (!el || el === document.body || el === document.documentElement) return null;
+      return (window as any).__getSelector(el);
+    });
+
+    if (!currentSelector) continue;
+
+    // Find which stop this corresponds to
+    // We advance through stops in order, skipping any we miss
+    while (stopIdx < stops.length && stopSelectors[stopIdx] !== currentSelector) {
+      // This stop was skipped (maybe not focusable this time around)
+      results.set(stops[stopIdx].index, {
         fullyObscured: false,
         partiallyObscured: false,
         overlapPercent: 0,
         obscuringElement: null,
-        focusedInViewport: false,
+        focusedInViewport: true,
       });
-      continue;
+      stopIdx++;
     }
+
+    if (stopIdx >= stops.length) break;
+
+    const stop = stops[stopIdx];
+    onProgress?.(stopIdx + 1, stops.length);
 
     await page.waitForTimeout(10);
 
-    // Check if the focused element is actually visually obscured
-    // by using elementFromPoint at the center of the element.
-    // This lets the browser's own rendering engine tell us what's on top.
     const data = await page.evaluate(() => {
       const el = document.activeElement;
       if (!el) return null;
@@ -568,13 +598,12 @@ export async function detectObscured(
       const fRect = el.getBoundingClientRect();
       const focusRect = { x: fRect.x, y: fRect.y, w: fRect.width, h: fRect.height };
 
-      // Check multiple points on the element to determine overlap percentage
       const checkPoints = [
-        { x: fRect.x + fRect.width / 2, y: fRect.y + fRect.height / 2 },  // center
-        { x: fRect.x + 2, y: fRect.y + 2 },                                // top-left
-        { x: fRect.x + fRect.width - 2, y: fRect.y + 2 },                  // top-right
-        { x: fRect.x + 2, y: fRect.y + fRect.height - 2 },                 // bottom-left
-        { x: fRect.x + fRect.width - 2, y: fRect.y + fRect.height - 2 },   // bottom-right
+        { x: fRect.x + fRect.width / 2, y: fRect.y + fRect.height / 2 },
+        { x: fRect.x + 2, y: fRect.y + 2 },
+        { x: fRect.x + fRect.width - 2, y: fRect.y + 2 },
+        { x: fRect.x + 2, y: fRect.y + fRect.height - 2 },
+        { x: fRect.x + fRect.width - 2, y: fRect.y + fRect.height - 2 },
       ].filter(p => p.x >= 0 && p.y >= 0);
 
       let obscuredPoints = 0;
@@ -584,13 +613,10 @@ export async function detectObscured(
         const topEl = document.elementFromPoint(point.x, point.y);
         if (!topEl) continue;
 
-        // If the top element is the focused element itself, or a
-        // descendant/ancestor of it, the point is not obscured
         if (topEl === el || el.contains(topEl) || topEl.contains(el)) {
           continue;
         }
 
-        // This point is covered by something else
         obscuredPoints++;
         if (!obscurerSelector) {
           obscurerSelector = topEl.id
@@ -615,6 +641,7 @@ export async function detectObscured(
         obscuringElement: null,
         focusedInViewport: false,
       });
+      stopIdx++;
       continue;
     }
 
@@ -626,13 +653,46 @@ export async function detectObscured(
       focusRect.x + focusRect.w > 0 &&
       focusRect.x < viewportWidth;
 
+    // Capture viewport screenshot when the element is obscured
+    let screenshotPath: string | undefined;
+    if (overlapPercent > 0 && outputDir) {
+      fs.mkdirSync(outputDir, { recursive: true });
+      const safeName = stop.selector
+        .replace(/[^a-zA-Z0-9_-]/g, "_")
+        .substring(0, 80);
+      const fileName = `m1-05_${stop.index}_${safeName}_obscured.png`;
+      const filePath = path.join(outputDir, fileName);
+
+      try {
+        await page.screenshot({ path: filePath, type: "png" });
+        screenshotPath = filePath;
+      } catch {
+        // Screenshot failed — continue without it
+      }
+    }
+
     results.set(stop.index, {
       fullyObscured: overlapPercent >= 100,
       partiallyObscured: overlapPercent > 0 && overlapPercent < 100,
       overlapPercent,
       obscuringElement: overlapPercent > 0 ? obscurerSelector : null,
       focusedInViewport,
+      screenshotPath,
     });
+
+    stopIdx++;
+  }
+
+  // Fill in any remaining stops we didn't reach
+  while (stopIdx < stops.length) {
+    results.set(stops[stopIdx].index, {
+      fullyObscured: false,
+      partiallyObscured: false,
+      overlapPercent: 0,
+      obscuringElement: null,
+      focusedInViewport: true,
+    });
+    stopIdx++;
   }
 
   return results;

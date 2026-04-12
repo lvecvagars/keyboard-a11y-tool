@@ -78,8 +78,13 @@ function normalizeUrl(raw: string): string {
   let url = raw.trim();
   if (!url) throw new Error("URL is empty");
 
+  // Local file path → file:// URL
+  if (url.startsWith("/") || url.startsWith("./") || url.startsWith("../") || /^[a-zA-Z]:\\/.test(url) || url.endsWith(".html") || url.endsWith(".htm")) {
+    const absolutePath = require("path").resolve(url);
+    url = "file://" + absolutePath;
+  }
   // Prepend https:// if no protocol
-  if (!/^https?:\/\//i.test(url)) {
+  else if (!/^https?:\/\//i.test(url) && !url.startsWith("file://")) {
     url = "https://" + url;
   }
 
@@ -128,6 +133,9 @@ export async function runEvaluation(
   try {
     await injectHelpers(page);
 
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const outputDir = path.join("output", `run-${timestamp}`);
+
     // ============================================================
     // MODULE 1: Focus Traversal & Order Analysis
     // ============================================================
@@ -162,7 +170,7 @@ export async function runEvaluation(
     );
 
     onProgress(`M1-05: Checking for obscured focus (${uniqueStops.length} elements)...`);
-    const obscured = await detectObscured(page, uniqueStops, (current, total) => {
+    const obscured = await detectObscured(page, uniqueStops, outputDir, (current, total) => {
       if (current % 5 === 0 || current === total) {
         onProgress(`M1-05: ${current}/${total} elements checked`);
       }
@@ -182,9 +190,6 @@ export async function runEvaluation(
     onProgress("M2-02b: Scanning stylesheets for outline removal...");
     const outlineOverrides = await scanStylesheetsForOutlineRemoval(page);
     onProgress(`M2-02b: ${outlineOverrides.length} outline removal rule(s) found`);
-
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const outputDir = path.join("output", `run-${timestamp}`);
 
     onProgress("M2-01/02/03/04: Analyzing focus indicators...");
     const indicatorResults = await analyzeIndicators(
