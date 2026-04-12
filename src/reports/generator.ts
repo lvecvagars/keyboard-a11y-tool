@@ -445,7 +445,25 @@ export function writeHtmlReport(report: ReportData, outputDir: string): string {
       const shortSel = shortenSelector(issue.elementSelector);
 
       const screenshotHtml = issue.screenshotPath
-        ? `<div class="screenshot-row"><img src="${escapeHtml(path.basename(issue.screenshotPath))}" alt="Focus indicator diff for ${escapeHtml(shortSel)}" loading="lazy"></div>`
+        ? (() => {
+            const diffFile = path.basename(issue.screenshotPath);
+            const focusedFile = diffFile.replace("_diff.png", "_focused.png");
+            const unfocusedFile = diffFile.replace("_diff.png", "_unfocused.png");
+            return `<div class="screenshot-pair">
+  <div class="screenshot-item">
+    <div class="screenshot-label">Unfocused</div>
+    <img src="${escapeHtml(unfocusedFile)}" alt="Element without focus" loading="lazy">
+  </div>
+  <div class="screenshot-item">
+    <div class="screenshot-label">Focused</div>
+    <img src="${escapeHtml(focusedFile)}" alt="Element with focus" loading="lazy">
+  </div>
+  <div class="screenshot-item">
+    <div class="screenshot-label">Difference</div>
+    <img src="${escapeHtml(diffFile)}" alt="Pixel difference showing focus indicator" loading="lazy">
+  </div>
+</div>`;
+          })()
         : "";
 
       issueCardsHtml += `
@@ -614,9 +632,33 @@ export function writeHtmlReport(report: ReportData, outputDir: string): string {
     margin-bottom: 8px;
   }
 
-  /* Screenshot */
+  /* Screenshots */
   .screenshot-row {
     margin: 10px 0;
+  }
+  .screenshot-pair {
+    display: flex;
+    gap: 10px;
+    margin: 10px 0;
+  }
+  .screenshot-item {
+    flex: 1;
+    min-width: 0;
+  }
+  .screenshot-item .screenshot-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #94a3b8;
+    margin-bottom: 4px;
+  }
+  .screenshot-item img {
+    width: 100%;
+    height: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    display: block;
   }
   .screenshot-row img {
     max-width: 100%;
