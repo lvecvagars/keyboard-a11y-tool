@@ -42,7 +42,6 @@ export function generateM1Issues(
 ): ReportIssue[] {
   const issues: ReportIssue[] = [];
 
-  // M1-01: Forward/backward mismatch
   if (uniqueStops.length !== uniqueBackward.length) {
     issues.push({
       checkId: "M1-01",
@@ -54,7 +53,6 @@ export function generateM1Issues(
     });
   }
 
-  // M1-02: Keyboard traps
   for (const trap of traps) {
     issues.push({
       checkId: "M1-02",
@@ -68,7 +66,6 @@ export function generateM1Issues(
     });
   }
 
-  // M1-03: Focus order violations
   if (focusOrder.correlationScore < 0.7) {
     issues.push({
       checkId: "M1-03",
@@ -101,7 +98,6 @@ export function generateM1Issues(
     }
   }
 
-  // M1-04: Skip link
   if (!skipLink.exists) {
     issues.push({
       checkId: "M1-04",
@@ -122,7 +118,6 @@ export function generateM1Issues(
     });
   }
 
-  // M1-05: Obscured elements
   for (const [idx, result] of obscuredResults) {
     const stop = allStops.find(s => s.index === idx);
     if (result.fullyObscured) {
@@ -158,7 +153,6 @@ export function generateM2Issues(
 ): ReportIssue[] {
   const issues: ReportIssue[] = [];
 
-  // M2-02 Part B: Stylesheet outline removal
   for (const rule of outlineOverrides) {
     if (!rule.hasReplacement) {
       issues.push({
@@ -172,11 +166,9 @@ export function generateM2Issues(
     }
   }
 
-  // Per-element results from the traversal pass
   for (const r of indicatorResults) {
     const scoreTag = ` Visibility score: ${r.score.score}/100 (${r.score.level}).`;
 
-    // M2-01: No visible indicator
     if (!r.existence.hasVisibleChange) {
       issues.push({
         checkId: "M2-01",
@@ -187,10 +179,9 @@ export function generateM2Issues(
         remediation: "Add a visible focus indicator using :focus or :focus-visible. Use outline, box-shadow, or border that contrasts with the surrounding background.",
         screenshotPath: r.existence.diffImagePath || undefined,
       });
-      continue; // Skip contrast/area checks — no indicator to measure
+      continue;
     }
 
-    // M2-02: Outline actively removed
     if (r.cssAnalysis.outlineState === "removed") {
       issues.push({
         checkId: "M2-02",
@@ -202,7 +193,6 @@ export function generateM2Issues(
       });
     }
 
-    // M2-03: Contrast ratio
     if (r.contrast.medianContrast < 3) {
       issues.push({
         checkId: "M2-03",
@@ -215,7 +205,6 @@ export function generateM2Issues(
       });
     }
 
-    // M2-04: Area
     if (r.area.areaRatio < 1) {
       issues.push({
         checkId: "M2-04",
@@ -242,7 +231,6 @@ export function generateM3Issues(
 ): ReportIssue[] {
   const issues: ReportIssue[] = [];
 
-  // M3-01: Unreachable interactive elements
   for (const el of coverageGap.unreachableElements) {
     const signals: string[] = [];
     if (el.hasClickHandler) signals.push("click handler");
@@ -261,7 +249,6 @@ export function generateM3Issues(
     });
   }
 
-  // M3-02: Non-semantic interactive controls
   for (const ctrl of nonSemanticControls) {
     issues.push({
       checkId: "M3-02",
@@ -273,7 +260,6 @@ export function generateM3Issues(
     });
   }
 
-  // M3-03: Inaccessible scrollable regions
   for (const region of scrollableRegions) {
     if (!region.isFocusable && !region.hasFocusableChild) {
       issues.push({
@@ -346,11 +332,11 @@ export function writeJsonReport(report: ReportData, outputDir: string): string {
 
 // ---- HTML Report ----
 
-const SEVERITY_COLORS: Record<Severity, string> = {
-  critical: "#dc2626",
-  warning: "#d97706",
-  moderate: "#2563eb",
-  info: "#6b7280",
+const SEVERITY_COLORS: Record<Severity, { bg: string; text: string; light: string }> = {
+  critical: { bg: "#dc2626", text: "#fff", light: "#fef2f2" },
+  warning:  { bg: "#d97706", text: "#fff", light: "#fffbeb" },
+  moderate: { bg: "#2563eb", text: "#fff", light: "#eff6ff" },
+  info:     { bg: "#6b7280", text: "#fff", light: "#f9fafb" },
 };
 
 const SEVERITY_LABELS: Record<Severity, string> = {
@@ -358,6 +344,28 @@ const SEVERITY_LABELS: Record<Severity, string> = {
   warning: "Warning",
   moderate: "Moderate",
   info: "Info",
+};
+
+const CHECK_NAMES: Record<string, string> = {
+  "M1-01": "Tab Sequence",
+  "M1-02": "Keyboard Trap",
+  "M1-03": "Focus Order",
+  "M1-04": "Skip Link",
+  "M1-05": "Focus Obscured",
+  "M2-01": "No Focus Indicator",
+  "M2-02": "Outline Removed",
+  "M2-03": "Low Contrast",
+  "M2-04": "Insufficient Area",
+  "M2-05": "Visibility Score",
+  "M3-01": "Not Keyboard-Reachable",
+  "M3-02": "Non-Semantic Control",
+  "M3-03": "Scrollable Region",
+};
+
+const MODULE_INFO: Record<string, { name: string; color: string }> = {
+  "M1": { name: "Focus Traversal & Order", color: "#2563eb" },
+  "M2": { name: "Focus Indicator Visibility", color: "#7c3aed" },
+  "M3": { name: "Interactive Element Coverage", color: "#059669" },
 };
 
 function escapeHtml(s: string): string {
@@ -368,6 +376,17 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/** Shorten a CSS selector for display — show the meaningful last part */
+function shortenSelector(sel: string): string {
+  if (sel === "page") return "Entire page";
+  // If it's a short selector, show as-is
+  if (sel.length <= 50) return sel;
+  // Show the last 2 segments of a path selector
+  const parts = sel.split(" > ");
+  if (parts.length <= 2) return sel;
+  return "… > " + parts.slice(-2).join(" > ");
+}
+
 export function writeHtmlReport(report: ReportData, outputDir: string): string {
   fs.mkdirSync(outputDir, { recursive: true });
   const filePath = path.join(outputDir, "report.html");
@@ -375,58 +394,13 @@ export function writeHtmlReport(report: ReportData, outputDir: string): string {
   const { summary, issues, url, timestamp, durationMs } = report;
   const duration = (durationMs / 1000).toFixed(1);
 
-  // Group issues by element for cleaner display — same element's issues appear together
-  const issuesByElement = new Map<string, ReportIssue[]>();
+  // Group issues by module
+  const moduleGroups = new Map<string, ReportIssue[]>();
   for (const issue of issues) {
-    const key = issue.elementSelector;
-    const list = issuesByElement.get(key) || [];
+    const moduleKey = issue.checkId.substring(0, 2);
+    const list = moduleGroups.get(moduleKey) || [];
     list.push(issue);
-    issuesByElement.set(key, list);
-  }
-
-  // Sort elements: critical issues first, then by module order
-  const severityWeight: Record<Severity, number> = { critical: 0, warning: 1, moderate: 2, info: 3 };
-  const sortedElements = Array.from(issuesByElement.entries()).sort(([, a], [, b]) => {
-    const aMin = Math.min(...a.map(i => severityWeight[i.severity]));
-    const bMin = Math.min(...b.map(i => severityWeight[i.severity]));
-    if (aMin !== bMin) return aMin - bMin;
-    return a[0].checkId.localeCompare(b[0].checkId);
-  });
-
-  // Build issue rows HTML
-  let issueRows = "";
-
-  for (const [selector, elementIssues] of sortedElements) {
-    const worstSeverity = elementIssues.reduce((worst, i) =>
-      severityWeight[i.severity] < severityWeight[worst] ? i.severity : worst,
-      "info" as Severity
-    );
-    const color = SEVERITY_COLORS[worstSeverity];
-    const label = SEVERITY_LABELS[worstSeverity];
-
-    const checks = elementIssues.map(i =>
-      `<code>${escapeHtml(i.checkId)}</code>`
-    ).join(" ");
-
-    const wcag = Array.from(new Set(elementIssues.map(i => i.wcagCriterion))).join(", ");
-
-    const descriptions = elementIssues.map(i => {
-      const screenshot = i.screenshotPath
-        ? ` <a href="${escapeHtml(path.relative(outputDir, i.screenshotPath))}">screenshot</a>`
-        : "";
-      return `<p>${escapeHtml(i.description)}${screenshot}</p>`;
-    }).join("\n");
-
-    const remediations = Array.from(new Set(elementIssues.map(i => i.remediation)))
-      .map(r => `<p>${escapeHtml(r)}</p>`)
-      .join("\n");
-
-    issueRows += `<tr>
-  <td><span class="severity" style="background:${color}">${label}</span><br><small>WCAG ${escapeHtml(wcag)}</small><br>${checks}</td>
-  <td><code class="selector">${escapeHtml(selector)}</code></td>
-  <td>${descriptions}</td>
-  <td>${remediations}</td>
-</tr>\n`;
+    moduleGroups.set(moduleKey, list);
   }
 
   // Score bar color
@@ -438,6 +412,63 @@ export function writeHtmlReport(report: ReportData, outputDir: string): string {
     summary.keyboardCoveragePercent >= 95 ? "#059669" :
     summary.keyboardCoveragePercent >= 80 ? "#d97706" : "#dc2626";
 
+  // Build issue cards HTML grouped by module
+  let issueCardsHtml = "";
+
+  for (const [moduleKey, moduleIssues] of moduleGroups) {
+    const info = MODULE_INFO[moduleKey] || { name: moduleKey, color: "#6b7280" };
+    const critCount = moduleIssues.filter(i => i.severity === "critical").length;
+    const warnCount = moduleIssues.filter(i => i.severity === "warning").length;
+    const modCount = moduleIssues.filter(i => i.severity === "moderate").length;
+
+    const countParts: string[] = [];
+    if (critCount > 0) countParts.push(`<span style="color:#dc2626">${critCount} critical</span>`);
+    if (warnCount > 0) countParts.push(`<span style="color:#d97706">${warnCount} warning</span>`);
+    if (modCount > 0) countParts.push(`<span style="color:#2563eb">${modCount} moderate</span>`);
+
+    issueCardsHtml += `
+<div class="module-section">
+  <div class="module-header">
+    <span class="module-dot" style="background:${info.color}"></span>
+    <span class="module-name">${escapeHtml(info.name)}</span>
+    <span class="module-counts">${countParts.join(" &middot; ")}</span>
+  </div>
+`;
+
+    // Sort: critical first, then warning, moderate, info
+    const severityWeight: Record<Severity, number> = { critical: 0, warning: 1, moderate: 2, info: 3 };
+    const sorted = [...moduleIssues].sort((a, b) => severityWeight[a.severity] - severityWeight[b.severity]);
+
+    for (const issue of sorted) {
+      const colors = SEVERITY_COLORS[issue.severity];
+      const checkName = CHECK_NAMES[issue.checkId] || issue.checkId;
+      const shortSel = shortenSelector(issue.elementSelector);
+
+      const screenshotHtml = issue.screenshotPath
+        ? `<div class="screenshot-row"><img src="${escapeHtml(path.basename(issue.screenshotPath))}" alt="Focus indicator diff for ${escapeHtml(shortSel)}" loading="lazy"></div>`
+        : "";
+
+      issueCardsHtml += `
+  <div class="issue-card" style="border-left-color:${colors.bg}">
+    <div class="issue-top">
+      <span class="severity-badge" style="background:${colors.bg};color:${colors.text}">${SEVERITY_LABELS[issue.severity]}</span>
+      <span class="check-badge">${escapeHtml(issue.checkId)}: ${escapeHtml(checkName)}</span>
+      <span class="wcag-ref">WCAG ${escapeHtml(issue.wcagCriterion)}</span>
+    </div>
+    <div class="issue-element" title="${escapeHtml(issue.elementSelector)}"><code>${escapeHtml(shortSel)}</code></div>
+    <div class="issue-description">${escapeHtml(issue.description)}</div>
+    ${screenshotHtml}
+    <details class="remediation-details">
+      <summary>How to fix</summary>
+      <div class="remediation-text">${escapeHtml(issue.remediation)}</div>
+    </details>
+  </div>
+`;
+    }
+
+    issueCardsHtml += `</div>\n`;
+  }
+
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -446,46 +477,220 @@ export function writeHtmlReport(report: ReportData, outputDir: string): string {
 <title>Keyboard Accessibility Report — ${escapeHtml(url)}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: system-ui, -apple-system, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background: #fff; color: #111827; font-size: 14px; line-height: 1.6; }
-  h1 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
-  .meta { font-size: 13px; color: #6b7280; margin-bottom: 24px; }
-  .meta a { color: #2563eb; }
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 0;
+    background: #f8fafc;
+    color: #1e293b;
+    font-size: 14px;
+    line-height: 1.6;
+  }
 
-  .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }
-  .summary-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; text-align: center; }
-  .summary-card .value { font-size: 28px; font-weight: 700; }
-  .summary-card .label { font-size: 12px; color: #6b7280; }
+  /* Header */
+  .report-header {
+    background: #1e293b;
+    color: #f1f5f9;
+    padding: 28px 32px;
+  }
+  .report-header h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .report-header .meta { font-size: 13px; color: #94a3b8; }
+  .report-header .meta a { color: #60a5fa; text-decoration: none; }
+  .report-header .meta a:hover { text-decoration: underline; }
 
-  .bar-container { width: 100%; height: 8px; background: #e5e7eb; border-radius: 4px; margin-top: 8px; }
-  .bar-fill { height: 100%; border-radius: 4px; }
+  .content { padding: 24px 32px; }
 
-  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-  th { text-align: left; padding: 10px 8px; background: #f9fafb; border-bottom: 2px solid #e5e7eb; font-size: 12px; text-transform: uppercase; color: #6b7280; }
-  td { padding: 10px 8px; border-bottom: 1px solid #f3f4f6; vertical-align: top; font-size: 13px; }
-  tr.module-header td { background: #f3f4f6; font-weight: 700; font-size: 14px; padding: 8px; }
-  tr:hover { background: #f9fafb; }
+  /* Summary grid */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+  .summary-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 18px;
+    text-align: center;
+  }
+  .summary-card .value { font-size: 32px; font-weight: 800; }
+  .summary-card .label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+  .bar-bg { width: 100%; height: 6px; background: #e2e8f0; border-radius: 3px; margin-top: 10px; }
+  .bar-fill { height: 100%; border-radius: 3px; }
 
-  .severity { display: inline-block; padding: 2px 8px; border-radius: 4px; color: #fff; font-size: 11px; font-weight: 700; }
-  code { background: #f3f4f6; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
-  code.selector { word-break: break-all; }
-  small { color: #9ca3af; }
+  /* Severity overview */
+  .severity-overview {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+  }
+  .severity-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .severity-chip .count { font-size: 16px; font-weight: 800; }
 
-  .section-title { font-size: 17px; font-weight: 700; margin-top: 32px; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 2px solid #e5e7eb; }
-  .pass-message { padding: 12px 16px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; color: #065f46; margin: 12px 0; }
+  /* Module sections */
+  .module-section { margin-bottom: 28px; }
+  .module-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 0;
+    border-bottom: 2px solid #e2e8f0;
+    margin-bottom: 12px;
+  }
+  .module-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .module-name { font-size: 16px; font-weight: 700; }
+  .module-counts { margin-left: auto; font-size: 12px; color: #64748b; }
 
-  @media (max-width: 800px) {
-    table { font-size: 12px; }
+  /* Issue cards */
+  .issue-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #ccc;
+    border-radius: 8px;
+    padding: 16px 18px;
+    margin-bottom: 10px;
+    transition: box-shadow 0.15s;
+  }
+  .issue-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+
+  .issue-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .severity-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .check-badge {
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+    background: #f1f5f9;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .wcag-ref {
+    font-size: 11px;
+    color: #94a3b8;
+    margin-left: auto;
+  }
+
+  .issue-element {
+    margin-bottom: 8px;
+  }
+  .issue-element code {
+    background: #f1f5f9;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+    color: #334155;
+    word-break: break-all;
+  }
+
+  .issue-description {
+    font-size: 13px;
+    color: #475569;
+    line-height: 1.6;
+    margin-bottom: 8px;
+  }
+
+  /* Screenshot */
+  .screenshot-row {
+    margin: 10px 0;
+  }
+  .screenshot-row img {
+    max-width: 100%;
+    height: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+  }
+
+  /* Remediation collapsible */
+  .remediation-details {
+    margin-top: 4px;
+  }
+  .remediation-details summary {
+    font-size: 12px;
+    font-weight: 600;
+    color: #2563eb;
+    cursor: pointer;
+    padding: 4px 0;
+    user-select: none;
+  }
+  .remediation-details summary:hover { color: #1d4ed8; }
+  .remediation-text {
+    font-size: 13px;
+    color: #475569;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-top: 6px;
+    line-height: 1.6;
+  }
+
+  /* Pass message */
+  .pass-message {
+    padding: 20px 24px;
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    border-radius: 10px;
+    color: #065f46;
+    font-size: 15px;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  /* Footer */
+  .report-footer {
+    text-align: center;
+    padding: 20px;
+    font-size: 11px;
+    color: #94a3b8;
+    border-top: 1px solid #e2e8f0;
+    margin-top: 20px;
+  }
+
+  @media (max-width: 640px) {
+    .content { padding: 16px; }
+    .report-header { padding: 20px 16px; }
     .summary-grid { grid-template-columns: 1fr 1fr; }
+    .issue-top { flex-direction: column; align-items: flex-start; }
+    .wcag-ref { margin-left: 0; }
   }
 </style>
 </head>
 <body>
 
-<h1>Keyboard Accessibility Report</h1>
-<p class="meta">
-  <a href="${escapeHtml(url)}">${escapeHtml(url)}</a><br>
-  Generated: ${escapeHtml(timestamp)} &middot; Duration: ${duration}s
-</p>
+<div class="report-header">
+  <h1>Keyboard Accessibility Report</h1>
+  <p class="meta">
+    <a href="${escapeHtml(url)}">${escapeHtml(url)}</a><br>
+    Generated: ${escapeHtml(new Date(timestamp).toLocaleString())} &middot; Duration: ${duration}s
+  </p>
+</div>
+
+<div class="content">
 
 <div class="summary-grid">
   <div class="summary-card">
@@ -493,46 +698,33 @@ export function writeHtmlReport(report: ReportData, outputDir: string): string {
     <div class="label">Tab Stops</div>
   </div>
   <div class="summary-card">
-    <div class="value" style="color:${summary.criticalCount > 0 ? "#dc2626" : "#059669"}">${summary.totalIssues}</div>
-    <div class="label">Issues Found</div>
+    <div class="value" style="color:${scoreColor}">${summary.averageVisibilityScore}<small style="font-size:16px;font-weight:400">/100</small></div>
+    <div class="label">Visibility Score</div>
+    <div class="bar-bg"><div class="bar-fill" style="width:${summary.averageVisibilityScore}%;background:${scoreColor}"></div></div>
   </div>
   <div class="summary-card">
-    <div class="value" style="color:${summary.criticalCount > 0 ? "#dc2626" : "#059669"}">${summary.criticalCount}</div>
-    <div class="label">Critical</div>
-  </div>
-  <div class="summary-card">
-    <div class="value" style="color:#d97706">${summary.warningCount}</div>
-    <div class="label">Warnings</div>
-  </div>
-  <div class="summary-card">
-    <div class="value" style="color:${scoreColor}">${summary.averageVisibilityScore}/100</div>
-    <div class="label">Avg Visibility Score</div>
-    <div class="bar-container"><div class="bar-fill" style="width:${summary.averageVisibilityScore}%;background:${scoreColor}"></div></div>
-  </div>
-  <div class="summary-card">
-    <div class="value" style="color:${coverageColor}">${summary.keyboardCoveragePercent}%</div>
+    <div class="value" style="color:${coverageColor}">${summary.keyboardCoveragePercent}<small style="font-size:16px;font-weight:400">%</small></div>
     <div class="label">Keyboard Coverage</div>
-    <div class="bar-container"><div class="bar-fill" style="width:${summary.keyboardCoveragePercent}%;background:${coverageColor}"></div></div>
+    <div class="bar-bg"><div class="bar-fill" style="width:${summary.keyboardCoveragePercent}%;background:${coverageColor}"></div></div>
   </div>
 </div>
 
-<div class="section-title">Issues (${summary.totalIssues})</div>
+<div class="severity-overview">
+  <span class="severity-chip" style="background:#fef2f2;color:#dc2626"><span class="count">${summary.criticalCount}</span> Critical</span>
+  <span class="severity-chip" style="background:#fffbeb;color:#d97706"><span class="count">${summary.warningCount}</span> Warnings</span>
+  <span class="severity-chip" style="background:#eff6ff;color:#2563eb"><span class="count">${summary.moderateCount}</span> Moderate</span>
+  ${summary.infoCount > 0 ? `<span class="severity-chip" style="background:#f9fafb;color:#6b7280"><span class="count">${summary.infoCount}</span> Info</span>` : ""}
+</div>
 
 ${issues.length === 0
   ? '<div class="pass-message">No keyboard accessibility issues detected.</div>'
-  : `<table>
-<thead>
-  <tr>
-    <th style="width:110px">Severity</th>
-    <th style="width:220px">Element</th>
-    <th>Issues</th>
-    <th style="width:280px">Remediation</th>
-  </tr>
-</thead>
-<tbody>
-${issueRows}
-</tbody>
-</table>`}
+  : issueCardsHtml}
+
+</div>
+
+<div class="report-footer">
+  Generated by Keyboard Accessibility Evaluation Tool &middot; WCAG 2.2
+</div>
 
 </body>
 </html>`;
