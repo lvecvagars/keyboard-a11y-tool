@@ -405,6 +405,23 @@ export function writeHtmlReport(report: ReportData, outputDir: string): string {
     moduleGroups.set(moduleKey, list);
   }
 
+  // Module-level stats for summary cards
+  const m1Issues = moduleGroups.get("M1") || [];
+  const m2Issues = moduleGroups.get("M2") || [];
+  const m3Issues = moduleGroups.get("M3") || [];
+
+  const m1Criticals = m1Issues.filter(i => i.severity === "critical").length;
+  const m1Warnings = m1Issues.filter(i => i.severity === "warning").length;
+  const m2Criticals = m2Issues.filter(i => i.severity === "critical").length;
+  const m2Warnings = m2Issues.filter(i => i.severity === "warning").length;
+  const m3Criticals = m3Issues.filter(i => i.severity === "critical").length;
+  const m3Warnings = m3Issues.filter(i => i.severity === "warning").length;
+
+  const m1Traps = m1Issues.filter(i => i.checkId === "M1-02").length;
+  const m1Obscured = m1Issues.filter(i => i.checkId === "M1-05").length;
+  const m3Unreachable = m3Issues.filter(i => i.checkId === "M3-01").length;
+  const m3NonSemantic = m3Issues.filter(i => i.checkId === "M3-02").length;
+
   // Score bar color
   const scoreColor =
     summary.averageVisibilityScore >= 80 ? "#059669" :
@@ -413,6 +430,13 @@ export function writeHtmlReport(report: ReportData, outputDir: string): string {
   const coverageColor =
     summary.keyboardCoveragePercent >= 95 ? "#059669" :
     summary.keyboardCoveragePercent >= 80 ? "#d97706" : "#dc2626";
+
+  // Severity bar widths (percentage of total)
+  const total = summary.totalIssues || 1;
+  const critPct = Math.round((summary.criticalCount / total) * 100);
+  const warnPct = Math.round((summary.warningCount / total) * 100);
+  const modPct = Math.round((summary.moderateCount / total) * 100);
+  const infoPct = Math.round((summary.infoCount / total) * 100);
 
   // Build issue cards HTML grouped by module
   let issueCardsHtml = "";
@@ -450,13 +474,11 @@ export function writeHtmlReport(report: ReportData, outputDir: string): string {
         ? (() => {
             const fileName = path.basename(issue.screenshotPath);
             if (issue.checkId === "M1-05") {
-              // M1-05: Single viewport screenshot showing the obscured element
               return `<div class="screenshot-row">
   <div class="screenshot-label">Viewport showing obscured focus</div>
   <img src="${escapeHtml(fileName)}" alt="Viewport screenshot showing focused element obscured by overlay" loading="lazy">
 </div>`;
             }
-            // M2: Triple screenshot (unfocused / focused / diff)
             const focusedFile = fileName.replace("_diff.png", "_focused.png");
             const unfocusedFile = fileName.replace("_diff.png", "_unfocused.png");
             return `<div class="screenshot-pair">
@@ -529,42 +551,157 @@ export function writeHtmlReport(report: ReportData, outputDir: string): string {
 
   .content { padding: 24px 32px; }
 
-  /* Summary grid */
-  .summary-grid {
+  /* ---- Severity bar ---- */
+  .severity-bar-section { margin-bottom: 24px; }
+  .severity-bar-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+  }
+  .severity-bar {
+    display: flex;
+    height: 28px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #e2e8f0;
+  }
+  .severity-bar .seg {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    min-width: 28px;
+    transition: width 0.3s ease;
+  }
+  .severity-bar .seg span { opacity: 0.95; }
+  .severity-legend {
+    display: flex;
+    gap: 16px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+  }
+  .severity-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: #475569;
+  }
+  .severity-legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  /* ---- Module summary cards ---- */
+  .module-summary-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
-    margin-bottom: 28px;
+    gap: 14px;
+    margin-bottom: 24px;
   }
-  .summary-card {
+  .module-summary-card {
     background: #fff;
     border: 1px solid #e2e8f0;
     border-radius: 10px;
-    padding: 18px;
-    text-align: center;
+    padding: 18px 20px;
+    border-top: 4px solid #ccc;
   }
-  .summary-card .value { font-size: 32px; font-weight: 800; }
-  .summary-card .label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
-  .bar-bg { width: 100%; height: 6px; background: #e2e8f0; border-radius: 3px; margin-top: 10px; }
-  .bar-fill { height: 100%; border-radius: 3px; }
-
-  /* Severity overview */
-  .severity-overview {
+  .module-summary-card .ms-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 10px;
+  }
+  .module-summary-card .ms-metric {
     display: flex;
-    gap: 8px;
-    margin-bottom: 28px;
-    flex-wrap: wrap;
-  }
-  .severity-chip {
-    display: inline-flex;
-    align-items: center;
+    align-items: baseline;
     gap: 6px;
-    padding: 6px 14px;
-    border-radius: 20px;
-    font-size: 13px;
-    font-weight: 600;
+    margin-bottom: 6px;
   }
-  .severity-chip .count { font-size: 16px; font-weight: 800; }
+  .module-summary-card .ms-metric .ms-value {
+    font-size: 28px;
+    font-weight: 800;
+    line-height: 1;
+  }
+  .module-summary-card .ms-metric .ms-unit {
+    font-size: 13px;
+    color: #64748b;
+  }
+  .module-summary-card .ms-details {
+    font-size: 12px;
+    color: #64748b;
+    line-height: 1.6;
+  }
+  .module-summary-card .ms-details .ms-tag {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-right: 4px;
+  }
+
+  /* Mini bar inside module cards */
+  .ms-bar-bg {
+    width: 100%;
+    height: 6px;
+    background: #e2e8f0;
+    border-radius: 3px;
+    margin-top: 10px;
+    margin-bottom: 4px;
+  }
+  .ms-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.4s ease;
+  }
+
+  /* ---- Key stats row ---- */
+  .stats-row {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 28px;
+  }
+  .stat-item {
+    flex: 1;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .stat-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+  .stat-text .stat-value {
+    font-size: 20px;
+    font-weight: 800;
+    line-height: 1.2;
+  }
+  .stat-text .stat-label {
+    font-size: 11px;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
 
   /* Module sections */
   .module-section { margin-bottom: 28px; }
@@ -646,6 +783,14 @@ export function writeHtmlReport(report: ReportData, outputDir: string): string {
   .screenshot-row {
     margin: 10px 0;
   }
+  .screenshot-row .screenshot-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #94a3b8;
+    margin-bottom: 4px;
+  }
   .screenshot-pair {
     display: flex;
     gap: 10px;
@@ -726,7 +871,8 @@ export function writeHtmlReport(report: ReportData, outputDir: string): string {
   @media (max-width: 640px) {
     .content { padding: 16px; }
     .report-header { padding: 20px 16px; }
-    .summary-grid { grid-template-columns: 1fr 1fr; }
+    .module-summary-grid { grid-template-columns: 1fr; }
+    .stats-row { flex-direction: column; }
     .issue-top { flex-direction: column; align-items: flex-start; }
     .wcag-ref { margin-left: 0; }
   }
@@ -744,30 +890,79 @@ export function writeHtmlReport(report: ReportData, outputDir: string): string {
 
 <div class="content">
 
-<div class="summary-grid">
-  <div class="summary-card">
-    <div class="value">${summary.totalTabStops}</div>
-    <div class="label">Tab Stops</div>
+<!-- ===== Severity Distribution Bar ===== -->
+<div class="severity-bar-section">
+  <div class="severity-bar-label">${summary.totalIssues} issues found</div>
+  <div class="severity-bar">
+    ${summary.criticalCount > 0 ? `<div class="seg" style="width:${critPct}%;background:#dc2626"><span>${summary.criticalCount}</span></div>` : ""}
+    ${summary.warningCount > 0 ? `<div class="seg" style="width:${warnPct}%;background:#d97706"><span>${summary.warningCount}</span></div>` : ""}
+    ${summary.moderateCount > 0 ? `<div class="seg" style="width:${modPct}%;background:#2563eb"><span>${summary.moderateCount}</span></div>` : ""}
+    ${summary.infoCount > 0 ? `<div class="seg" style="width:${infoPct}%;background:#6b7280"><span>${summary.infoCount}</span></div>` : ""}
+    ${summary.totalIssues === 0 ? `<div class="seg" style="width:100%;background:#059669"><span>No issues</span></div>` : ""}
   </div>
-  <div class="summary-card">
-    <div class="value" style="color:${scoreColor}">${summary.averageVisibilityScore}<small style="font-size:16px;font-weight:400">/100</small></div>
-    <div class="label">Visibility Score</div>
-    <div class="bar-bg"><div class="bar-fill" style="width:${summary.averageVisibilityScore}%;background:${scoreColor}"></div></div>
-  </div>
-  <div class="summary-card">
-    <div class="value" style="color:${coverageColor}">${summary.keyboardCoveragePercent}<small style="font-size:16px;font-weight:400">%</small></div>
-    <div class="label">Keyboard Coverage</div>
-    <div class="bar-bg"><div class="bar-fill" style="width:${summary.keyboardCoveragePercent}%;background:${coverageColor}"></div></div>
+  <div class="severity-legend">
+    ${summary.criticalCount > 0 ? `<div class="severity-legend-item"><div class="severity-legend-dot" style="background:#dc2626"></div>${summary.criticalCount} Critical</div>` : ""}
+    ${summary.warningCount > 0 ? `<div class="severity-legend-item"><div class="severity-legend-dot" style="background:#d97706"></div>${summary.warningCount} Warning</div>` : ""}
+    ${summary.moderateCount > 0 ? `<div class="severity-legend-item"><div class="severity-legend-dot" style="background:#2563eb"></div>${summary.moderateCount} Moderate</div>` : ""}
+    ${summary.infoCount > 0 ? `<div class="severity-legend-item"><div class="severity-legend-dot" style="background:#6b7280"></div>${summary.infoCount} Info</div>` : ""}
   </div>
 </div>
 
-<div class="severity-overview">
-  <span class="severity-chip" style="background:#fef2f2;color:#dc2626"><span class="count">${summary.criticalCount}</span> Critical</span>
-  <span class="severity-chip" style="background:#fffbeb;color:#d97706"><span class="count">${summary.warningCount}</span> Warnings</span>
-  <span class="severity-chip" style="background:#eff6ff;color:#2563eb"><span class="count">${summary.moderateCount}</span> Moderate</span>
-  ${summary.infoCount > 0 ? `<span class="severity-chip" style="background:#f9fafb;color:#6b7280"><span class="count">${summary.infoCount}</span> Info</span>` : ""}
+<!-- ===== Module Summary Cards ===== -->
+<div class="module-summary-grid">
+  <!-- Module 1: Focus Traversal -->
+  <div class="module-summary-card" style="border-top-color:#2563eb">
+    <div class="ms-title" style="color:#2563eb">Focus Traversal &amp; Order</div>
+    <div class="ms-metric">
+      <span class="ms-value">${summary.totalTabStops}</span>
+      <span class="ms-unit">tab stops</span>
+    </div>
+    <div class="ms-details">
+      ${m1Issues.length === 0
+        ? `<span class="ms-tag" style="background:#ecfdf5;color:#059669">All clear</span>`
+        : `${m1Criticals > 0 ? `<span class="ms-tag" style="background:#fef2f2;color:#dc2626">${m1Criticals} critical</span>` : ""}${m1Warnings > 0 ? `<span class="ms-tag" style="background:#fffbeb;color:#d97706">${m1Warnings} warning</span>` : ""}`
+      }
+      ${m1Traps > 0 ? `<br>${m1Traps} keyboard trap${m1Traps > 1 ? "s" : ""}` : ""}
+      ${m1Obscured > 0 ? `<br>${m1Obscured} obscured element${m1Obscured > 1 ? "s" : ""}` : ""}
+    </div>
+  </div>
+
+  <!-- Module 2: Focus Indicators -->
+  <div class="module-summary-card" style="border-top-color:#7c3aed">
+    <div class="ms-title" style="color:#7c3aed">Focus Indicator Visibility</div>
+    <div class="ms-metric">
+      <span class="ms-value" style="color:${scoreColor}">${summary.averageVisibilityScore}</span>
+      <span class="ms-unit">/ 100 avg score</span>
+    </div>
+    <div class="ms-bar-bg"><div class="ms-bar-fill" style="width:${summary.averageVisibilityScore}%;background:${scoreColor}"></div></div>
+    <div class="ms-details">
+      ${m2Issues.length === 0
+        ? `<span class="ms-tag" style="background:#ecfdf5;color:#059669">All clear</span>`
+        : `${m2Criticals > 0 ? `<span class="ms-tag" style="background:#fef2f2;color:#dc2626">${m2Criticals} critical</span>` : ""}${m2Warnings > 0 ? `<span class="ms-tag" style="background:#fffbeb;color:#d97706">${m2Warnings} warning</span>` : ""}`
+      }
+    </div>
+  </div>
+
+  <!-- Module 3: Coverage -->
+  <div class="module-summary-card" style="border-top-color:#059669">
+    <div class="ms-title" style="color:#059669">Interactive Element Coverage</div>
+    <div class="ms-metric">
+      <span class="ms-value" style="color:${coverageColor}">${summary.keyboardCoveragePercent}%</span>
+      <span class="ms-unit">keyboard coverage</span>
+    </div>
+    <div class="ms-bar-bg"><div class="ms-bar-fill" style="width:${summary.keyboardCoveragePercent}%;background:${coverageColor}"></div></div>
+    <div class="ms-details">
+      ${m3Issues.length === 0
+        ? `<span class="ms-tag" style="background:#ecfdf5;color:#059669">All clear</span>`
+        : `${m3Criticals > 0 ? `<span class="ms-tag" style="background:#fef2f2;color:#dc2626">${m3Criticals} critical</span>` : ""}${m3Warnings > 0 ? `<span class="ms-tag" style="background:#fffbeb;color:#d97706">${m3Warnings} warning</span>` : ""}`
+      }
+      ${m3Unreachable > 0 ? `<br>${m3Unreachable} unreachable element${m3Unreachable > 1 ? "s" : ""}` : ""}
+      ${m3NonSemantic > 0 ? `<br>${m3NonSemantic} non-semantic control${m3NonSemantic > 1 ? "s" : ""}` : ""}
+    </div>
+  </div>
 </div>
 
+<!-- ===== Issues ===== -->
 ${issues.length === 0
   ? '<div class="pass-message">No keyboard accessibility issues detected.</div>'
   : issueCardsHtml}
