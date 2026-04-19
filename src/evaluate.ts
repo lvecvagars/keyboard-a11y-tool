@@ -6,6 +6,7 @@
  * (server.ts) use this same function.
  */
 
+import * as fs from "fs"
 import { launchAndNavigate } from "./utils/browser";
 import {
   injectHelpers,
@@ -135,6 +136,16 @@ export async function runEvaluation(
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const outputDir = path.join("output", `run-${timestamp}`);
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    // Capture page screenshot before any interaction
+    const pageScreenshotPath = path.join(outputDir, "page-screenshot.png");
+    try {
+      await page.screenshot({ path: pageScreenshotPath, type: "png" });
+      onProgress("Captured page screenshot");
+    } catch {
+      onProgress("Warning: Could not capture page screenshot");
+    }
 
     // ============================================================
     // MODULE 1: Focus Traversal & Order Analysis
@@ -256,7 +267,7 @@ export async function runEvaluation(
     );
 
     const jsonPath = writeJsonReport(report, outputDir);
-    const htmlPath = writeHtmlReport(report, outputDir);
+    const htmlPath = writeHtmlReport(report, outputDir, pageScreenshotPath);
 
     onProgress(`Done! ${allIssues.length} issues found (${report.summary.criticalCount} critical). Duration: ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
 

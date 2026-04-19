@@ -389,7 +389,7 @@ function shortenSelector(sel: string): string {
   return "… > " + parts.slice(-2).join(" > ");
 }
 
-export function writeHtmlReport(report: ReportData, outputDir: string): string {
+export function writeHtmlReport(report: ReportData, outputDir: string, pageScreenshotPath?: string): string {
   fs.mkdirSync(outputDir, { recursive: true });
   const filePath = path.join(outputDir, "report.html");
 
@@ -548,6 +548,16 @@ export function writeHtmlReport(report: ReportData, outputDir: string): string {
   .report-header .meta { font-size: 13px; color: #94a3b8; }
   .report-header .meta a { color: #60a5fa; text-decoration: none; }
   .report-header .meta a:hover { text-decoration: underline; }
+
+  /* Page screenshot */
+  .page-screenshot {
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .page-screenshot img {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
 
   .content { padding: 24px 32px; }
 
@@ -887,6 +897,10 @@ export function writeHtmlReport(report: ReportData, outputDir: string): string {
     Generated: ${escapeHtml(new Date(timestamp).toLocaleString())} &middot; Duration: ${duration}s
   </p>
 </div>
+
+${pageScreenshotPath ? `<div class="page-screenshot">
+  <img src="${escapeHtml(path.basename(pageScreenshotPath))}" alt="Screenshot of ${escapeHtml(url)} at page load" loading="lazy">
+</div>` : ""}
 
 <div class="content">
 
