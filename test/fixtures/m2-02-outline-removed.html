@@ -1,0 +1,56 @@
+<!--
+  FIXTURE: M2-02 outline removed with no replacement
+
+  Classic anti-pattern: stylesheet contains a `:focus { outline: none }`
+  rule with no replacement property in the same rule (no box-shadow,
+  no border change, no background change). M2-02 scans stylesheets for
+  exactly this pattern.
+
+  The rule targets `button.stripped:focus` specifically so the reference
+  link at the top keeps its visible focus indicator and doesn't trigger
+  unrelated warnings.
+
+  Note: this will likely also cause M2-01 to fire since stripping the
+  outline with no replacement *is* the thing that makes the indicator
+  invisible. That's fine — M2-02 is specifically about the CSS rule
+  pattern, which is a distinct finding from the pixel-diff result.
+
+  Expected: ≥1 M2-02 issue.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>M2-02 outline removed</title>
+  <style>
+    body { font-family: sans-serif; padding: 24px; }
+
+    /* Reference link — proper focus indicator */
+    a:focus {
+      outline: 3px solid #2563eb;
+      outline-offset: 2px;
+    }
+
+    button.stripped {
+      padding: 8px 16px;
+      font-size: 14px;
+      background: #3b82f6;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+    }
+
+    /* The anti-pattern M2-02 is looking for:
+       outline removed, no replacement property in the same rule. */
+    button.stripped:focus {
+      outline: none;
+    }
+  </style>
+</head>
+<body>
+  <a href="#top">Reference link (has visible focus)</a>
+
+  <p>The button below has `outline: none` on :focus with no replacement:</p>
+  <button type="button" class="stripped">Stripped outline button</button>
+</body>
+</html>

@@ -103,6 +103,59 @@ const FIXTURES: FixtureSpec[] = [
       checks: { "M1-05": 1 },
     },
   },
+  
+  // ---- Module 2 ----
+  {
+    file: "m2-01-no-focus-indicator.html",
+    description: "Button whose focused and unfocused states are visually identical",
+    expect: {
+      checks: { "M2-01": 1 },
+    },
+  },
+  {
+    file: "m2-02-outline-removed.html",
+    description: "Stylesheet rule with `outline: none` on :focus and no replacement property",
+    expect: {
+      checks: { "M2-02": 1 },
+    },
+  },
+  {
+    file: "m2-03-low-contrast-indicator.html",
+    description: "Visible focus outline but its color barely contrasts with the page background",
+    expect: {
+      checks: { "M2-03": 1 },
+    },
+  },
+  {
+    file: "m2-04-indicator-too-small.html",
+    description: "High-contrast focus outline but only 1px thick, below the WCAG 2.4.13 area minimum",
+    expect: {
+      checks: { "M2-04": 1 },
+    },
+  },
+
+  // ---- Module 3 ----
+  {
+    file: "m3-01-clickable-div-unreachable.html",
+    description: "Div with role=button and click handler but no tabindex (keyboard-unreachable)",
+    expect: {
+      checks: { "M3-01": 1 },
+    },
+  },
+  {
+    file: "m3-02-non-semantic-button.html",
+    description: "Div with a click handler but no tabindex, no role, and no key handler",
+    expect: {
+      checks: { "M3-02": 1 },
+    },
+  },
+  {
+    file: "m3-03-scrollable-no-access.html",
+    description: "Scrollable div with no tabindex and no focusable children",
+    expect: {
+      checks: { "M3-03": 1 },
+    },
+  },
 ];
 
 // ---- ANSI colors for terminal output ----

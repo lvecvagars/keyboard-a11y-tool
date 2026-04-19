@@ -1,0 +1,58 @@
+<!--
+  FIXTURE: M3-01 pointer-interactive but not keyboard-reachable
+
+  A div with `role="button"` and a click handler — Set B (pointer-
+  interactive) includes it because of the ARIA interactive role, but
+  it has no tabindex so Set A (keyboard-reachable) does not. The
+  Set B minus Set A gap is exactly this element.
+
+  Per the spec, elements with ARIA interactive roles that aren't
+  focusable are the critical-severity case for M3-01. Using
+  role="button" (rather than just cursor:pointer) makes this an
+  unambiguous critical finding rather than a could-be-false-positive
+  warning.
+
+  A real <button> is included for contrast so there's at least one
+  element in Set A and the traversal isn't entirely empty.
+
+  Expected: ≥1 M3-01 issue.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>M3-01 clickable div unreachable</title>
+  <style>
+    body { font-family: sans-serif; padding: 24px; }
+    a:focus, button:focus, .fake-button:focus {
+      outline: 3px solid #2563eb;
+      outline-offset: 2px;
+    }
+    .fake-button {
+      display: inline-block;
+      padding: 8px 16px;
+      background: #3b82f6;
+      color: #fff;
+      border-radius: 4px;
+      cursor: pointer;
+      user-select: none;
+    }
+    button { padding: 8px 16px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <!-- Real button so Set A is non-empty -->
+  <button type="button" id="real">Real button (keyboard-reachable)</button>
+
+  <p>The div below has role="button" and a click handler, but no tabindex:</p>
+
+  <!--
+    role="button" → Set B includes it (ARIA interactive role)
+    no tabindex   → Set A excludes it (never receives focus via Tab)
+    Result: critical M3-01 finding.
+  -->
+  <div role="button" class="fake-button" onclick="alert('clicked')">
+    Fake button (unreachable)
+  </div>
+</body>
+</html>

@@ -1,0 +1,60 @@
+<!--
+  FIXTURE: M3-02 non-semantic interactive element
+
+  A plain <div> with a click handler and none of the three things M3-02
+  checks for:
+    - no tabindex
+    - no interactive ARIA role
+    - no keydown/keypress handler
+
+  This is the "inaccessible custom control" pattern — the most common
+  keyboard accessibility failure in the wild, per the spec.
+
+  Differs from M3-01's fixture in that this element has no role at all
+  (M3-01 used role="button"). M3-02 is specifically about non-semantic
+  elements used as controls, so the absence of role is the point.
+
+  A real <button> is included so there's a valid tab stop for traversal.
+
+  Expected: ≥1 M3-02 issue.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>M3-02 non-semantic button</title>
+  <style>
+    body { font-family: sans-serif; padding: 24px; }
+    a:focus, button:focus {
+      outline: 3px solid #2563eb;
+      outline-offset: 2px;
+    }
+    .clickable-div {
+      display: inline-block;
+      padding: 8px 16px;
+      background: #3b82f6;
+      color: #fff;
+      border-radius: 4px;
+      cursor: pointer;
+      user-select: none;
+    }
+    button { padding: 8px 16px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <button type="button">Real button (for reference)</button>
+
+  <p>The div below has a click handler but no tabindex, no role, and no key handler:</p>
+
+  <!--
+    Click handler present → M3-02 considers this a candidate.
+    No tabindex → not focusable.
+    No role    → no ARIA interactive role.
+    No keydown → no keyboard equivalent.
+    All three missing → critical M3-02 finding.
+  -->
+  <div class="clickable-div" onclick="alert('clicked')">
+    Non-semantic clickable div
+  </div>
+</body>
+</html>

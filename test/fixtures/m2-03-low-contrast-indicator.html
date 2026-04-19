@@ -1,0 +1,80 @@
+<!--
+  FIXTURE: M2-03 low-contrast focus indicator
+
+  The button uses a light-gray outline (#c8c8c8) on a white page
+  background. Needs to thread the needle between two checks:
+    - Visible enough for M2-01 to register a pixel diff (so the
+      indicator is considered "present")
+    - Low enough contrast to fall below the 3:1 threshold M2-03
+      measures on those diffed pixels
+
+  Contrast math:
+    L(#c8c8c8) ≈ 0.573
+    L(#ffffff) = 1.0
+    contrast = (1.0 + 0.05) / (0.573 + 0.05) ≈ 1.69:1
+
+  Comfortably below 3:1, but dark enough that the pixel diff is
+  unambiguous. Previous attempts with #e5e7eb and #f3f4f6 either
+  registered contrast above 3:1 or slipped below M2-01's detection
+  floor.
+
+  The button itself has no border and a white background, so no
+  high-contrast edges exist in the diff region that could pull the
+  median contrast up — every changed pixel is outline-vs-page.
+
+  `outline-offset: 4px` pushes the outline out into clean white space
+  on all four sides, away from the button's interior, so the diff
+  region is unambiguously outline-color-vs-page-background.
+
+  Body background is explicitly white to give the contrast calculation
+  a clean reference.
+
+  Expected: ≥1 M2-03 issue.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>M2-03 low-contrast indicator</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 24px;
+      background: #ffffff;
+    }
+
+    /* Reference link — high-contrast focus indicator */
+    a:focus {
+      outline: 3px solid #2563eb;
+      outline-offset: 2px;
+    }
+
+    /* Button with no border and white background — so when the outline
+       appears, the only edges in the diff are outline-vs-page, not
+       outline-vs-some-darker-button-edge. */
+    button.low-contrast {
+      padding: 8px 16px;
+      font-size: 14px;
+      background: #ffffff;
+      color: #111827;
+      border: none;
+      outline: none;
+    }
+
+    /* Thick outline pushed off the button into clean white space.
+       Color is light gray — dark enough to register in the pixel
+       diff, light enough to fall below the 3:1 contrast threshold
+       (~1.69:1 against white). */
+    button.low-contrast:focus {
+      outline: 4px solid #c8c8c8;
+      outline-offset: 4px;
+    }
+  </style>
+</head>
+<body>
+  <a href="#top">Reference link (high-contrast focus)</a>
+
+  <p>The button below has a focus indicator with very low contrast:</p>
+  <button type="button" class="low-contrast">Low-contrast focus</button>
+</body>
+</html>

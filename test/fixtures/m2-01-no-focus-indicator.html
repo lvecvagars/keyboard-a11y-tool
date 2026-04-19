@@ -1,0 +1,59 @@
+<!--
+  FIXTURE: M2-01 no visible focus indicator
+
+  A button with all visible focus styling stripped out: outline removed,
+  no box-shadow, no border change, no background change, no text color
+  change. Screenshot diff between focused and unfocused states should
+  show virtually zero changed pixels, triggering M2-01.
+
+  The `outline: none` here is accompanied by NO replacement property, so
+  M2-02 may also fire — that's expected and acceptable since the two
+  checks are complementary (see spec M2-02 note). We don't assert on
+  M2-02 here; the fixture for that check uses a clearer signal.
+
+  A reference link at the top has a proper visible focus indicator so
+  its M2 checks pass cleanly and don't muddy the results.
+
+  Expected: ≥1 M2-01 issue.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>M2-01 no focus indicator</title>
+  <style>
+    body { font-family: sans-serif; padding: 24px; }
+
+    /* Reference link — proper focus indicator */
+    a:focus {
+      outline: 3px solid #2563eb;
+      outline-offset: 2px;
+    }
+
+    /* The offender: completely invisible focus state.
+       Same styles in both :focus and default, outline stripped. */
+    button.no-indicator {
+      padding: 8px 16px;
+      font-size: 14px;
+      background: #e5e7eb;
+      color: #111827;
+      border: 1px solid #9ca3af;
+      outline: none;
+    }
+    button.no-indicator:focus {
+      /* intentionally identical to default — no visible change */
+      background: #e5e7eb;
+      color: #111827;
+      border: 1px solid #9ca3af;
+      outline: none;
+      box-shadow: none;
+    }
+  </style>
+</head>
+<body>
+  <a href="#top">Reference link (has visible focus)</a>
+
+  <p>The button below has no visible focus indicator:</p>
+  <button type="button" class="no-indicator">Invisible focus button</button>
+</body>
+</html>

@@ -1,0 +1,57 @@
+<!--
+  FIXTURE: M3-03 scrollable region without keyboard access
+
+  A div with `overflow: auto` and content that overflows its fixed
+  height (scrollHeight > clientHeight), but:
+    - no tabindex on the container itself
+    - no focusable children inside (plain text only — no links, no
+      buttons, no inputs, no elements with tabindex)
+
+  A keyboard user has no way to scroll this region because focus can
+  never land on it or inside it.
+
+  A real <button> sits outside the scrollable region so the tab
+  traversal has something to iterate over.
+
+  Expected: ≥1 M3-03 issue.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>M3-03 scrollable no access</title>
+  <style>
+    body { font-family: sans-serif; padding: 24px; }
+    a:focus, button:focus {
+      outline: 3px solid #2563eb;
+      outline-offset: 2px;
+    }
+    button { padding: 8px 16px; font-size: 14px; margin-bottom: 16px; }
+
+    .scroll-box {
+      width: 300px;
+      height: 120px;
+      overflow: auto;
+      border: 1px solid #9ca3af;
+      padding: 8px;
+      background: #f9fafb;
+      /* No tabindex attribute → not focusable itself. */
+    }
+    .scroll-box p { margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <button type="button">Focusable button (outside scroll box)</button>
+
+  <p>The box below scrolls, but has no tabindex and contains no focusable children:</p>
+
+  <div class="scroll-box">
+    <p>Paragraph one. Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+    <p>Paragraph two. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+    <p>Paragraph three. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.</p>
+    <p>Paragraph four. Duis aute irure dolor in reprehenderit in voluptate velit esse.</p>
+    <p>Paragraph five. Excepteur sint occaecat cupidatat non proident, sunt in culpa.</p>
+    <p>Paragraph six. Qui officia deserunt mollit anim id est laborum.</p>
+  </div>
+</body>
+</html>
