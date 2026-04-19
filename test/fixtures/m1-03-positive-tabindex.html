@@ -1,0 +1,37 @@
+<!--
+  FIXTURE: M1-03 positive tabindex (anti-pattern)
+
+  Three buttons: two have positive tabindex values, which override
+  natural DOM/visual order and force themselves to the front of the
+  tab sequence. This is a well-known accessibility anti-pattern and
+  M1-03 flags each one as a separate warning.
+
+  Expected: ≥2 M1-03 warnings (one per button with tabindex > 0).
+
+  We intentionally don't include layout distortion — the page should
+  fail only on the tabindex anti-pattern, not on visual-order
+  correlation. That's why the buttons are in a simple horizontal
+  row.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>M1-03 positive tabindex</title>
+  <style>
+    body { font-family: sans-serif; padding: 24px; }
+    button:focus, a:focus { outline: 3px solid #2563eb; outline-offset: 2px; }
+    .row { display: flex; gap: 8px; margin: 16px 0; }
+    button { padding: 8px 16px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <p>Two buttons below have tabindex &gt; 0 (anti-pattern):</p>
+  <div class="row">
+    <button type="button" tabindex="5">tabindex=5</button>
+    <button type="button" tabindex="10">tabindex=10</button>
+    <button type="button">Normal button</button>
+  </div>
+  <a href="#end">Link at the end</a>
+</body>
+</html>

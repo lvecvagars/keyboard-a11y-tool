@@ -1,0 +1,54 @@
+<!--
+  FIXTURE: M1-01 basic tab sequence (clean)
+
+  A minimal page with a handful of natively-focusable elements in
+  source order matching visual order. Used as the baseline "clean"
+  fixture for Module 1 — no keyboard traps, no weird tab order, no
+  obscuring elements, no interactive <div>s.
+
+  The tool should find no critical issues. M1-04 (no skip link) may
+  fire as a moderate issue, which is acceptable here; M2 may also
+  flag indicator size/contrast depending on browser defaults. Those
+  incidental findings do not break this fixture because we only
+  assert maxCritical=0.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>M1-01 basic tab sequence</title>
+  <style>
+    body { font-family: sans-serif; padding: 24px; max-width: 600px; }
+    h1 { font-size: 20px; margin-bottom: 16px; }
+    /* Strong, WCAG-compliant focus style so M2 doesn't flag these */
+    a:focus, button:focus, input:focus {
+      outline: 3px solid #2563eb;
+      outline-offset: 2px;
+    }
+    nav a { margin-right: 12px; }
+    form { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; max-width: 300px; }
+    input, button { padding: 6px 10px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h1>Basic tab sequence</h1>
+
+  <nav>
+    <a href="#one">One</a>
+    <a href="#two">Two</a>
+    <a href="#three">Three</a>
+  </nav>
+
+  <form onsubmit="event.preventDefault()">
+    <label>
+      Name
+      <input type="text" name="name">
+    </label>
+    <label>
+      Email
+      <input type="email" name="email">
+    </label>
+    <button type="submit">Submit</button>
+  </form>
+</body>
+</html>

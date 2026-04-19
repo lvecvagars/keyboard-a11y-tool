@@ -1,0 +1,65 @@
+<!--
+  FIXTURE: M1-04 broken skip link
+
+  A page with a skip link in the right place (first tab stop), but
+  the target ID doesn't exist in the document. The tool should
+  detect the skip link (exists: true) but report that the target
+  is unreachable (targetReachable: false).
+
+  Expected: 1 M1-04 moderate issue for the broken target.
+
+  This is distinct from the "no skip link" fixture — here a skip
+  link *is* present and detected, but pressing Enter doesn't move
+  focus anywhere meaningful because #main-content doesn't exist.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>M1-04 broken skip link</title>
+  <style>
+    body { font-family: sans-serif; padding: 24px; max-width: 600px; }
+    a:focus, button:focus { outline: 3px solid #2563eb; outline-offset: 2px; }
+
+    /* Skip link hidden off-screen until focused */
+    .skip-link {
+      position: absolute;
+      top: -40px;
+      left: 0;
+      background: #f1fa8c;
+      color: #111;
+      padding: 8px 16px;
+      text-decoration: none;
+      font-weight: bold;
+    }
+    .skip-link:focus { top: 0; }
+
+    nav ul { list-style: none; padding: 0; display: flex; gap: 12px; }
+    nav a { padding: 8px 12px; background: #f0f0f0; text-decoration: none;
+            color: #111; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <!-- Skip link points to #main-content, but no such element exists -->
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+
+  <nav>
+    <ul>
+      <li><a href="#a">Link A</a></li>
+      <li><a href="#b">Link B</a></li>
+      <li><a href="#c">Link C</a></li>
+    </ul>
+  </nav>
+
+  <!--
+    Note: the <main> below has id="content", not id="main-content".
+    The skip link's target is missing, so activating it will not
+    move focus to the main content.
+  -->
+  <main id="content">
+    <h1>Main content</h1>
+    <p>The skip link above points to #main-content, but that id doesn't exist here.</p>
+    <button type="button">A button in the main content</button>
+  </main>
+</body>
+</html>

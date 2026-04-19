@@ -1,0 +1,119 @@
+<!--
+  FIXTURE: M1-05 focus obscured by sticky element
+
+  A tall page with a sticky header at the top and a fixed cookie
+  banner at the bottom. When a keyboard user tabs into links that
+  sit in the middle of the page, scrolling to reach them places
+  them directly under the sticky header or fixed banner.
+
+  The detectObscured() check in traversal.ts finds this by querying
+  elementFromPoint at the focused element's corners and center; if
+  a different (higher-z-index) element is returned, the element is
+  reported as partially or fully obscured.
+
+  Expected: ≥1 M1-05 issue (warning or critical).
+
+  We put plenty of filler content between the top nav and the
+  middle links so that focusing them requires scrolling, which is
+  what makes the sticky header obscure them.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>M1-05 sticky obscures focus</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; color: #111; }
+    a:focus, button:focus { outline: 3px solid #2563eb; outline-offset: 2px; }
+
+    /* Sticky header — will obscure focused content when scrolled */
+    .sticky-header {
+      position: sticky;
+      top: 0;
+      background: #1a1a2e;
+      color: #fff;
+      padding: 24px 20px;
+      z-index: 100;
+      display: flex;
+      gap: 16px;
+    }
+    .sticky-header a { color: #8be9fd; }
+
+    main { padding: 20px; max-width: 800px; margin: 0 auto; }
+    p { margin: 8px 0; line-height: 1.5; }
+    h2 { margin: 24px 0 12px; }
+
+    .target-links {
+      margin: 20px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    /* Fixed bottom banner — will obscure focus near bottom */
+    .banner {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #2c3e50;
+      color: #fff;
+      padding: 24px 20px;
+      z-index: 100;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="sticky-header">
+    <a href="#home">Home</a>
+    <a href="#about">About</a>
+    <a href="#contact">Contact</a>
+  </div>
+
+  <main>
+    <h1>Long scrolling page</h1>
+    <p>Lots of filler so that scrolling is required to reach links below.</p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+
+    <h2>Target links</h2>
+    <div class="target-links">
+      <a href="#target-1">Target 1 (should be obscured by sticky header when focused)</a>
+      <a href="#target-2">Target 2 (should be obscured by sticky header when focused)</a>
+      <a href="#target-3">Target 3 (should be obscured by sticky header when focused)</a>
+    </div>
+
+    <p>More filler below the target links.</p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+
+    <div class="target-links">
+      <a href="#bottom-1">Bottom link 1 (should be obscured by fixed banner)</a>
+      <a href="#bottom-2">Bottom link 2 (should be obscured by fixed banner)</a>
+      <a href="#bottom-3">Bottom link 3 (should be obscured by fixed banner)</a>
+    </div>
+  </main>
+
+  <div class="banner">
+    This is a cookie banner fixed to the bottom of the viewport.
+  </div>
+
+</body>
+</html>

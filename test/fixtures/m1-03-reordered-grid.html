@@ -1,0 +1,66 @@
+<!--
+  FIXTURE: M1-03 focus order vs visual layout (reordered grid)
+
+  Eight links laid out in a 2×4 CSS grid. The DOM order is 1, 2, 3,
+  4, 5, 6, 7, 8 but `order` properties visually reorder them into
+  8, 7, 6, 5, 4, 3, 2, 1. When the user Tabs, the focus jumps around
+  the grid in a way that disagrees with the visual reading order
+  (top-to-bottom, left-to-right), producing a low Spearman rank
+  correlation between tab order and visual order.
+
+  Expected: ≥1 M1-03 warning (correlation score < 0.7).
+
+  The grid is big enough that the correlation penalty is large; a
+  smaller disagreement might pass the 0.7 threshold.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>M1-03 reordered grid</title>
+  <style>
+    body { font-family: sans-serif; padding: 24px; }
+    a:focus { outline: 3px solid #2563eb; outline-offset: 2px; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      max-width: 640px;
+    }
+    .grid a {
+      display: block;
+      padding: 24px;
+      background: #e8e8e8;
+      text-decoration: none;
+      color: #111;
+      text-align: center;
+      font-weight: 600;
+      border-radius: 4px;
+    }
+
+    /* Visually reverse the DOM order */
+    .i1 { order: 8; }
+    .i2 { order: 7; }
+    .i3 { order: 6; }
+    .i4 { order: 5; }
+    .i5 { order: 4; }
+    .i6 { order: 3; }
+    .i7 { order: 2; }
+    .i8 { order: 1; }
+  </style>
+</head>
+<body>
+  <p>DOM order 1–8, visual order 8–1:</p>
+  <div class="grid">
+    <a href="#1" class="i1">1 (visually last)</a>
+    <a href="#2" class="i2">2</a>
+    <a href="#3" class="i3">3</a>
+    <a href="#4" class="i4">4</a>
+    <a href="#5" class="i5">5</a>
+    <a href="#6" class="i6">6</a>
+    <a href="#7" class="i7">7</a>
+    <a href="#8" class="i8">8 (visually first)</a>
+  </div>
+</body>
+</html>

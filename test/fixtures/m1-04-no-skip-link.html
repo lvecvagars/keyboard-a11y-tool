@@ -1,0 +1,44 @@
+<!--
+  FIXTURE: M1-04 no skip link
+
+  A page with a navigation menu and main content, but no skip link
+  before the nav. Keyboard users must tab through all navigation
+  items to reach the main content area.
+
+  Expected: 1 M1-04 moderate issue.
+
+  Note: this page doesn't contain the word "skip", "main content",
+  or similar patterns in its first three tab stops, which is what
+  verifySkipLink() looks for.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>M1-04 no skip link</title>
+  <style>
+    body { font-family: sans-serif; padding: 24px; max-width: 600px; }
+    a:focus, button:focus { outline: 3px solid #2563eb; outline-offset: 2px; }
+    nav ul { list-style: none; padding: 0; display: flex; gap: 12px; }
+    nav a { display: inline-block; padding: 8px 12px; background: #f0f0f0;
+            text-decoration: none; color: #111; border-radius: 4px; }
+    main { margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <nav>
+    <ul>
+      <li><a href="#home">Home</a></li>
+      <li><a href="#about">About</a></li>
+      <li><a href="#services">Services</a></li>
+      <li><a href="#contact">Contact</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <h1>Main content</h1>
+    <p>This page has navigation but no skip link.</p>
+    <button type="button">A button in the main content</button>
+  </main>
+</body>
+</html>

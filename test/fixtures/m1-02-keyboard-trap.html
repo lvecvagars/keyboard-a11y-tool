@@ -1,0 +1,60 @@
+<!--
+  FIXTURE: M1-02 keyboard trap
+
+  Two buttons wired up with a keydown handler that forces focus to
+  stay bouncing between them on Tab and Shift+Tab. The script blocks
+  Tab from leaving trap-2 forward and Shift+Tab from leaving trap-1
+  backward. Escape, arrow keys, and other escape attempts also do
+  nothing, so the trap should be confirmed (not just suspected).
+
+  Expected: ≥1 M1-02 critical issue.
+
+  Pattern copied from the existing test/module1-test.html but
+  isolated so no other Module 1 checks fire spuriously.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>M1-02 keyboard trap</title>
+  <style>
+    body { font-family: sans-serif; padding: 24px; }
+    a:focus, button:focus { outline: 3px solid #2563eb; outline-offset: 2px; }
+    .trap-zone { border: 2px solid #dc2626; padding: 16px; margin: 16px 0; border-radius: 4px; }
+    button { padding: 8px 16px; margin: 4px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <!-- Normal link before the trap so we have a reference tab stop -->
+  <a href="#before">Link before trap</a>
+
+  <div class="trap-zone">
+    <p>Focus gets stuck between these two buttons:</p>
+    <button id="trap-1" type="button">Trapped button 1</button>
+    <button id="trap-2" type="button">Trapped button 2</button>
+  </div>
+
+  <!-- Link after the trap; keyboard users can never reach it -->
+  <a href="#after">Link after trap (unreachable via Tab)</a>
+
+  <script>
+    const trap1 = document.getElementById('trap-1');
+    const trap2 = document.getElementById('trap-2');
+
+    document.addEventListener('keydown', (e) => {
+      const active = document.activeElement;
+
+      if (e.key === 'Tab') {
+        if (!e.shiftKey && active === trap2) {
+          e.preventDefault();
+          trap1.focus();
+        }
+        if (e.shiftKey && active === trap1) {
+          e.preventDefault();
+          trap2.focus();
+        }
+      }
+    });
+  </script>
+</body>
+</html>
