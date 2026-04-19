@@ -322,6 +322,13 @@ async function tryEscape(
  * Checks if one of the first few tab stops is a skip link (an anchor
  * pointing to an in-page #id). If found, activates it and verifies
  * that focus actually moves to the target element.
+ *
+ * Fixed (2026-04-20): previously treated "focus stayed on the skip-
+ * link anchor after Enter" as `reachable: true`. That's wrong —
+ * pressing Enter on an anchor whose target doesn't exist leaves
+ * focus on the anchor itself, which should be reported as
+ * unreachable. We now compare activeElement against the skip-link
+ * element and only consider focus "moved" if it went somewhere else.
  */
 export async function verifySkipLink(
   page: Page,
@@ -388,50 +395,77 @@ export async function verifySkipLink(
     await page.keyboard.press("Enter");
     await page.waitForTimeout(300);
 
-    const targetInfo = await page.evaluate((expectedHref) => {
-      const el = document.activeElement;
+    // Pass the skip-link element's own selector into the evaluator so
+    // we can tell whether focus actually moved off the anchor.
+    const targetInfo = await page.evaluate(
+      (args: { expectedHref: string | null; skipLinkSelector: string }) => {
+        const el = document.activeElement;
+        const mainEl = document.querySelector("main, [role='main']");
 
-      // Check if focus moved to a main content landmark
-      const mainEl = document.querySelector("main, [role='main']");
+        // Resolve the skip-link element so we can compare by reference
+        let skipEl: Element | null = null;
+        try {
+          skipEl = document.querySelector(args.skipLinkSelector);
+        } catch {
+          // Invalid selector — treat as not matching
+        }
 
-      if (el && el !== document.body && el !== document.documentElement) {
-        const sel = el.id ? "#" + CSS.escape(el.id) : null;
-        // Focus landed on an element — check if it's inside main content
-        const isInMain = mainEl ? mainEl.contains(el) : false;
-        return {
-          reachable: true,
-          selector: sel,
-          isInMain,
-        };
-      }
+        // Key fix: focus staying on the skip-link itself (or inside it)
+        // means the target is NOT reachable. This happens when the
+        // anchor's href points to a non-existent id or when Enter
+        // doesn't navigate for some other reason.
+        const focusIsOnSkipLink =
+          el !== null &&
+          skipEl !== null &&
+          (el === skipEl || skipEl.contains(el));
 
-      // Focus didn't move to a specific element.
-      // Check if the skip link navigated via href.
-      if (expectedHref) {
-        const targetId = expectedHref.replace("#", "");
-        const target = document.getElementById(targetId);
-        if (target) {
-          const rect = target.getBoundingClientRect();
+        if (
+          el &&
+          el !== document.body &&
+          el !== document.documentElement &&
+          !focusIsOnSkipLink
+        ) {
+          const sel = el.id ? "#" + CSS.escape(el.id) : null;
+          const isInMain = mainEl ? mainEl.contains(el) : false;
+          return { reachable: true, selector: sel, isInMain };
+        }
+
+        // Focus didn't move off the skip link.
+        // Check if the skip link navigated via href to a real element.
+        if (args.expectedHref) {
+          const targetId = args.expectedHref.replace("#", "");
+          const target = document.getElementById(targetId);
+          if (target) {
+            const rect = target.getBoundingClientRect();
+            return {
+              reachable: rect.top >= -10 && rect.top <= 200,
+              selector: "#" + CSS.escape(targetId),
+              isInMain: mainEl ? mainEl.contains(target) : false,
+            };
+          }
+          // Skip link's href points to a missing id — link is definitively
+          // broken. Do NOT fall through to the <main> fallback; that would
+          // mask the broken-link issue on pages that happen to have <main>
+          // near the top.
+          return { reachable: false, selector: null, isInMain: false };
+        }
+
+        // No href (skip-link detected by text/tagname, e.g. custom elements).
+        // Fall back to checking whether main content is now visible near
+        // the top — suggests the skip link scrolled to it.
+        if (mainEl) {
+          const rect = mainEl.getBoundingClientRect();
           return {
             reachable: rect.top >= -10 && rect.top <= 200,
-            selector: "#" + CSS.escape(targetId),
-            isInMain: mainEl ? mainEl.contains(target) : false,
+            selector: mainEl.id ? "#" + CSS.escape(mainEl.id) : "main",
+            isInMain: true,
           };
         }
-      }
 
-      // Last resort: check if main content scrolled near the top
-      if (mainEl) {
-        const rect = mainEl.getBoundingClientRect();
-        return {
-          reachable: rect.top >= -10 && rect.top <= 200,
-          selector: mainEl.id ? "#" + CSS.escape(mainEl.id) : "main",
-          isInMain: true,
-        };
-      }
-
-      return { reachable: false, selector: null, isInMain: false };
-    }, skipInfo.href);
+        return { reachable: false, selector: null, isInMain: false };
+      },
+      { expectedHref: skipInfo.href, skipLinkSelector: stop.selector }
+    );
 
     return {
       exists: true,
