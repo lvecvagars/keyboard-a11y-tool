@@ -4,6 +4,9 @@
  * Collects results from all three modules, flattens them into a list of
  * issues with severity and remediation, computes summary statistics,
  * and outputs both JSON and HTML reports.
+ *
+ * All user-facing strings come from src/i18n/lv.ts — do not hardcode
+ * Latvian (or English) strings in this file.
  */
 
 import * as fs from "fs";
@@ -23,6 +26,7 @@ import {
 } from "../types";
 import { IndicatorAnalysis } from "../modules/visibility";
 import { OutlineOverrideRule } from "../modules/visibility";
+import { lv } from "../i18n/lv";
 
 // ---- Issue Generation ----
 
@@ -41,6 +45,7 @@ export function generateM1Issues(
   allStops: TabStop[]
 ): ReportIssue[] {
   const issues: ReportIssue[] = [];
+  const t = lv.issues;
 
   if (uniqueStops.length !== uniqueBackward.length) {
     issues.push({
@@ -48,21 +53,22 @@ export function generateM1Issues(
       wcagCriterion: "2.4.3",
       severity: "warning",
       elementSelector: "page",
-      description: `Forward traversal found ${uniqueStops.length} unique stops, backward found ${uniqueBackward.length}. The tab sequence may not be fully reversible.`,
-      remediation: "Ensure all focusable elements are reachable in both forward (Tab) and backward (Shift+Tab) directions. Check for elements that programmatically manage focus in only one direction.",
+      description: t.m101TraversalMismatch(uniqueStops.length, uniqueBackward.length),
+      remediation: t.m101TraversalFix,
     });
   }
 
   for (const trap of traps) {
+    const escapedKeys = trap.escapeAttempts.filter(a => a.escaped).map(a => a.key).join(", ");
     issues.push({
       checkId: "M1-02",
       wcagCriterion: "2.1.2",
       severity: "critical",
       elementSelector: trap.location,
       description: trap.isTrap
-        ? `Keyboard trap confirmed. Focus cycles between ${trap.trappedElements.length} elements (${trap.trappedElements.join(", ")}) with no escape.`
-        : `Suspected keyboard trap at ${trap.location}, but escape was possible via ${trap.escapeAttempts.filter(a => a.escaped).map(a => a.key).join(", ")}.`,
-      remediation: "Remove the keyboard trap. Ensure users can navigate away from all focusable elements using Tab, Shift+Tab, or Escape. If a modal or widget intentionally constrains focus, provide a clearly labeled close/exit mechanism.",
+        ? t.m102TrapConfirmed(trap.trappedElements.length, trap.trappedElements.join(", "))
+        : t.m102TrapSuspected(trap.location, escapedKeys),
+      remediation: t.m102TrapFix,
     });
   }
 
@@ -72,8 +78,8 @@ export function generateM1Issues(
       wcagCriterion: "2.4.3",
       severity: "warning",
       elementSelector: "page",
-      description: `Focus order has low correlation with visual layout (Spearman ρ = ${focusOrder.correlationScore}). The tab sequence may be confusing for sighted keyboard users.`,
-      remediation: "Review the DOM order to ensure it follows the visual reading order. Avoid using CSS reordering (flexbox order, grid order) that diverges from source order. If layout requires visual reordering, adjust the DOM order to match.",
+      description: t.m103LowCorrelation(focusOrder.correlationScore),
+      remediation: t.m103LowCorrelationFix,
     });
   }
   for (const v of focusOrder.violations) {
@@ -83,8 +89,8 @@ export function generateM1Issues(
         wcagCriterion: "2.4.3",
         severity: "warning",
         elementSelector: v.fromElement,
-        description: `Element has tabindex > 0, which overrides natural tab order and is a known anti-pattern.`,
-        remediation: "Remove the positive tabindex value. Use tabindex=\"0\" to make elements focusable in DOM order, or restructure the DOM so elements appear in the desired order naturally.",
+        description: t.m103PositiveTabindex,
+        remediation: t.m103PositiveTabindexFix,
       });
     } else if (v.direction === "backward-vertical") {
       issues.push({
@@ -92,8 +98,8 @@ export function generateM1Issues(
         wcagCriterion: "2.4.3",
         severity: "warning",
         elementSelector: v.toElement,
-        description: `Focus jumps backward ${v.jumpDistance}px vertically from ${v.fromElement} to ${v.toElement}.`,
-        remediation: "Review the DOM order of these elements. A large backward jump suggests the source order doesn't match the visual layout.",
+        description: t.m103BackwardJump(v.jumpDistance, v.fromElement, v.toElement),
+        remediation: t.m103BackwardJumpFix,
       });
     }
   }
@@ -104,8 +110,8 @@ export function generateM1Issues(
       wcagCriterion: "2.4.1",
       severity: "moderate",
       elementSelector: "page",
-      description: "No skip link found. Keyboard users must tab through all navigation elements to reach main content.",
-      remediation: "Add a skip link as the first focusable element on the page. Use <a href=\"#main-content\">Skip to main content</a> and ensure the target element has id=\"main-content\" and is focusable (add tabindex=\"-1\" if needed).",
+      description: t.m104Missing,
+      remediation: t.m104MissingFix,
     });
   } else if (!skipLink.targetReachable) {
     issues.push({
@@ -113,8 +119,8 @@ export function generateM1Issues(
       wcagCriterion: "2.4.1",
       severity: "moderate",
       elementSelector: skipLink.targetSelector || "unknown",
-      description: `Skip link exists but its target (${skipLink.targetSelector}) is not reachable — focus did not move to the target when activated.`,
-      remediation: "Ensure the skip link's target element exists, has the correct id, and is focusable. Add tabindex=\"-1\" to the target element if it's not natively focusable.",
+      description: t.m104Unreachable(skipLink.targetSelector || "unknown"),
+      remediation: t.m104UnreachableFix,
     });
   }
 
@@ -126,8 +132,8 @@ export function generateM1Issues(
         wcagCriterion: "2.4.11",
         severity: "critical",
         elementSelector: stop?.selector || `tab-stop-${idx}`,
-        description: `Focused element is fully obscured (100%) by ${result.obscuringElement}.`,
-        remediation: "Ensure focused elements are not hidden behind fixed or sticky positioned elements. Use scroll-padding-top or scroll-margin-top to offset content below sticky headers. Dismiss or reposition overlays (cookie banners, chat widgets) when they obscure focused content.",
+        description: t.m105FullyObscured(result.obscuringElement || "?"),
+        remediation: t.m105FullyObscuredFix,
         screenshotPath: result.screenshotPath,
       });
     } else if (result.partiallyObscured) {
@@ -136,8 +142,8 @@ export function generateM1Issues(
         wcagCriterion: "2.4.11",
         severity: "warning",
         elementSelector: stop?.selector || `tab-stop-${idx}`,
-        description: `Focused element is ${result.overlapPercent}% obscured by ${result.obscuringElement}.`,
-        remediation: "Ensure focused elements are not partially hidden behind fixed or sticky positioned elements. Use scroll-padding or adjust layout so focused elements remain fully visible.",
+        description: t.m105PartiallyObscured(result.overlapPercent, result.obscuringElement || "?"),
+        remediation: t.m105PartiallyObscuredFix,
         screenshotPath: result.screenshotPath,
       });
     }
@@ -154,6 +160,7 @@ export function generateM2Issues(
   outlineOverrides: OutlineOverrideRule[]
 ): ReportIssue[] {
   const issues: ReportIssue[] = [];
+  const t = lv.issues;
 
   for (const rule of outlineOverrides) {
     if (!rule.hasReplacement) {
@@ -162,14 +169,15 @@ export function generateM2Issues(
         wcagCriterion: "2.4.7",
         severity: "critical",
         elementSelector: rule.selectorText,
-        description: `CSS rule "${rule.selectorText}" removes outline on :focus with no replacement style (source: ${rule.source}).`,
-        remediation: "Do not remove the default focus outline unless you provide an equally visible replacement. Add box-shadow, border, or a custom outline in the same rule.",
+        description: t.m202OutlineRemoved(rule.selectorText, rule.source),
+        remediation: t.m202OutlineRemovedFix,
       });
     }
   }
 
   for (const r of indicatorResults) {
-    const scoreTag = ` Visibility score: ${r.score.score}/100 (${r.score.level}).`;
+    const levelLv = lv.scoreLevel[r.score.level];
+    const scoreTag = ` (vērtējums: ${r.score.score}/100 — ${levelLv})`;
 
     if (!r.existence.hasVisibleChange) {
       issues.push({
@@ -177,8 +185,8 @@ export function generateM2Issues(
         wcagCriterion: "2.4.7",
         severity: "critical",
         elementSelector: r.selector,
-        description: `No visible focus indicator detected (${r.existence.changedPixelCount} changed pixels, threshold is 10).${scoreTag}`,
-        remediation: "Add a visible focus indicator using :focus or :focus-visible. Use outline, box-shadow, or border that contrasts with the surrounding background.",
+        description: t.m201NoIndicator(r.existence.changedPixelCount) + scoreTag,
+        remediation: t.m201NoIndicatorFix,
         screenshotPath: r.existence.diffImagePath || undefined,
       });
       continue;
@@ -190,8 +198,8 @@ export function generateM2Issues(
         wcagCriterion: "2.4.7",
         severity: "critical",
         elementSelector: r.selector,
-        description: `Default outline is actively removed on focus with no replacement CSS property.${scoreTag}`,
-        remediation: "Do not suppress the focus outline without providing an alternative. Add box-shadow, border, or background-color change in the same :focus rule.",
+        description: t.m202CssOutlineRemoved + scoreTag,
+        remediation: t.m202CssOutlineRemovedFix,
       });
     }
 
@@ -201,8 +209,8 @@ export function generateM2Issues(
         wcagCriterion: "2.4.13",
         severity: "warning",
         elementSelector: r.selector,
-        description: `Focus indicator contrast is below 3:1 (median ${r.contrast.medianContrast}:1, ${r.contrast.percentMeeting3to1}% of pixels meet threshold).${scoreTag}`,
-        remediation: "Increase the contrast of the focus indicator. Use a color that differs from both the element's background and the page background by at least 3:1. Dark outlines on light backgrounds or vice versa work well.",
+        description: t.m203LowContrast(r.contrast.medianContrast, r.contrast.percentMeeting3to1) + scoreTag,
+        remediation: t.m203LowContrastFix,
         screenshotPath: r.existence.diffImagePath || undefined,
       });
     }
@@ -213,8 +221,8 @@ export function generateM2Issues(
         wcagCriterion: "2.4.13",
         severity: "warning",
         elementSelector: r.selector,
-        description: `Focus indicator area is below WCAG 2.4.13 minimum (${r.area.qualifyingPixelCount}px qualifying vs ${r.area.minimumRequiredArea}px required, ratio ${r.area.areaRatio}).${scoreTag}`,
-        remediation: "Increase the size of the focus indicator. Use an outline or border at least 2px thick around the entire element perimeter. Ensure the indicator meets both the minimum area and 3:1 contrast requirements.",
+        description: t.m204SmallArea(r.area.qualifyingPixelCount, r.area.minimumRequiredArea, r.area.areaRatio) + scoreTag,
+        remediation: t.m204SmallAreaFix,
         screenshotPath: r.existence.diffImagePath || undefined,
       });
     }
@@ -232,6 +240,7 @@ export function generateM3Issues(
   scrollableRegions: ScrollableRegion[]
 ): ReportIssue[] {
   const issues: ReportIssue[] = [];
+  const t = lv.issues;
 
   for (const el of coverageGap.unreachableElements) {
     const signals: string[] = [];
@@ -244,21 +253,25 @@ export function generateM3Issues(
       wcagCriterion: "2.1.1",
       severity: el.role ? "critical" : "warning",
       elementSelector: el.selector,
-      description: `Interactive element (${signals.join(", ")}) is not keyboard-reachable. Mouse users can interact with it but keyboard users cannot.`,
+      description: t.m301Unreachable(signals.join(", ")),
       remediation: el.role
-        ? `This element has role="${el.role}" but is not focusable. Add tabindex="0" and ensure keyboard event handlers (keydown for Enter/Space) are present.`
-        : "Make this element keyboard-accessible by using a native interactive element (<button>, <a href>) instead, or add tabindex=\"0\", an appropriate ARIA role, and keyboard event handlers.",
+        ? t.m301UnreachableWithRole(el.role)
+        : t.m301UnreachableFix,
     });
   }
 
   for (const ctrl of nonSemanticControls) {
+    // Translate the individual issue strings that came from coverage.ts
+    // (those strings were generated in English by the analysis module;
+    // we map them to Latvian here in the report layer).
+    const translatedIssues = ctrl.issues.map(translateM302Issue);
     issues.push({
       checkId: "M3-02",
       wcagCriterion: "2.1.1",
       severity: "critical",
       elementSelector: ctrl.selector,
-      description: `Non-semantic <${ctrl.tag}> element is used as an interactive control but is missing: ${ctrl.issues.join("; ")}.`,
-      remediation: `Replace this <${ctrl.tag}> with a native interactive element (<button> or <a href>). If a custom element is necessary, add all of: tabindex="0" (focusability), role="button" or appropriate role (semantics), and a keydown handler for Enter and Space (operability).`,
+      description: t.m302NonSemantic(ctrl.tag, translatedIssues.join("; ")),
+      remediation: t.m302NonSemanticFix(ctrl.tag),
     });
   }
 
@@ -269,13 +282,28 @@ export function generateM3Issues(
         wcagCriterion: "2.1.1",
         severity: "moderate",
         elementSelector: region.selector,
-        description: `Scrollable region (${region.scrollHeight}px content in ${region.clientHeight}px container) is not keyboard-accessible. It has no tabindex and no focusable children.`,
-        remediation: "Add tabindex=\"0\" to the scrollable container so keyboard users can focus it and scroll with arrow keys. Also add an appropriate role (e.g., role=\"region\") and an aria-label describing the content.",
+        description: t.m303ScrollableInaccessible(region.scrollHeight, region.clientHeight),
+        remediation: t.m303ScrollableInaccessibleFix,
       });
     }
   }
 
   return issues;
+}
+
+/**
+ * Translate M3-02 issue strings from English (as produced in coverage.ts)
+ * to Latvian. The analysis module stays in English; translation happens
+ * at the report layer so the analysis remains language-agnostic.
+ */
+function translateM302Issue(issue: string): string {
+  const map = lv.issues.m302Issues;
+  if (issue.includes("tabindex")) return map.missingTabindex;
+  if (issue.includes("ARIA role") || issue.includes("role")) return map.missingRole;
+  if (issue.includes("keydown") || issue.includes("keypress") || issue.includes("keyboard")) {
+    return map.missingKeyHandler;
+  }
+  return issue; // fallback — untranslated
 }
 
 // ---- Summary Computation ----
@@ -341,33 +369,10 @@ const SEVERITY_COLORS: Record<Severity, { bg: string; text: string; light: strin
   info:     { bg: "#6b7280", text: "#fff", light: "#f9fafb" },
 };
 
-const SEVERITY_LABELS: Record<Severity, string> = {
-  critical: "Critical",
-  warning: "Warning",
-  moderate: "Moderate",
-  info: "Info",
-};
-
-const CHECK_NAMES: Record<string, string> = {
-  "M1-01": "Tab Sequence",
-  "M1-02": "Keyboard Trap",
-  "M1-03": "Focus Order",
-  "M1-04": "Skip Link",
-  "M1-05": "Focus Obscured",
-  "M2-01": "No Focus Indicator",
-  "M2-02": "Outline Removed",
-  "M2-03": "Low Contrast",
-  "M2-04": "Insufficient Area",
-  "M2-05": "Visibility Score",
-  "M3-01": "Not Keyboard-Reachable",
-  "M3-02": "Non-Semantic Control",
-  "M3-03": "Scrollable Region",
-};
-
-const MODULE_INFO: Record<string, { name: string; color: string }> = {
-  "M1": { name: "Focus Traversal & Order", color: "#2563eb" },
-  "M2": { name: "Focus Indicator Visibility", color: "#7c3aed" },
-  "M3": { name: "Interactive Element Coverage", color: "#059669" },
+const MODULE_COLORS: Record<string, string> = {
+  "M1": "#2563eb",
+  "M2": "#7c3aed",
+  "M3": "#059669",
 };
 
 function escapeHtml(s: string): string {
@@ -378,12 +383,16 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/** Capitalize the first character of a string. Used for legend labels
+ *  where the plural severity forms are lowercase by default. */
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 /** Shorten a CSS selector for display — show the meaningful last part */
 function shortenSelector(sel: string): string {
-  if (sel === "page") return "Entire page";
-  // If it's a short selector, show as-is
+  if (sel === "page") return lv.report.entirePage;
   if (sel.length <= 50) return sel;
-  // Show the last 2 segments of a path selector
   const parts = sel.split(" > ");
   if (parts.length <= 2) return sel;
   return "… > " + parts.slice(-2).join(" > ");
@@ -442,21 +451,27 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
   let issueCardsHtml = "";
 
   for (const [moduleKey, moduleIssues] of moduleGroups) {
-    const info = MODULE_INFO[moduleKey] || { name: moduleKey, color: "#6b7280" };
+    const moduleColor = MODULE_COLORS[moduleKey] || "#6b7280";
+    const moduleName =
+      moduleKey === "M1" ? lv.report.modules.m1.name :
+      moduleKey === "M2" ? lv.report.modules.m2.name :
+      moduleKey === "M3" ? lv.report.modules.m3.name :
+      moduleKey;
+
     const critCount = moduleIssues.filter(i => i.severity === "critical").length;
     const warnCount = moduleIssues.filter(i => i.severity === "warning").length;
     const modCount = moduleIssues.filter(i => i.severity === "moderate").length;
 
     const countParts: string[] = [];
-    if (critCount > 0) countParts.push(`<span style="color:#dc2626">${critCount} critical</span>`);
-    if (warnCount > 0) countParts.push(`<span style="color:#d97706">${warnCount} warning</span>`);
-    if (modCount > 0) countParts.push(`<span style="color:#2563eb">${modCount} moderate</span>`);
+    if (critCount > 0) countParts.push(`<span style="color:#dc2626">${critCount} ${lv.severityPlural.critical}</span>`);
+    if (warnCount > 0) countParts.push(`<span style="color:#d97706">${warnCount} ${lv.severityPlural.warning}</span>`);
+    if (modCount > 0) countParts.push(`<span style="color:#2563eb">${modCount} ${lv.severityPlural.moderate}</span>`);
 
     issueCardsHtml += `
 <div class="module-section">
   <div class="module-header">
-    <span class="module-dot" style="background:${info.color}"></span>
-    <span class="module-name">${escapeHtml(info.name)}</span>
+    <span class="module-dot" style="background:${moduleColor}"></span>
+    <span class="module-name">${escapeHtml(moduleName)}</span>
     <span class="module-counts">${countParts.join(" &middot; ")}</span>
   </div>
 `;
@@ -467,32 +482,34 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
 
     for (const issue of sorted) {
       const colors = SEVERITY_COLORS[issue.severity];
-      const checkName = CHECK_NAMES[issue.checkId] || issue.checkId;
+      const checkName = lv.checkNames[issue.checkId] || issue.checkId;
       const shortSel = shortenSelector(issue.elementSelector);
+      const severityLabel = lv.severity[issue.severity];
 
       const screenshotHtml = issue.screenshotPath
         ? (() => {
-            const fileName = path.basename(issue.screenshotPath);
+            const fileName = path.basename(issue.screenshotPath!);
+            const s = lv.report.screenshots;
             if (issue.checkId === "M1-05") {
               return `<div class="screenshot-row">
-  <div class="screenshot-label">Viewport showing obscured focus</div>
-  <img src="${escapeHtml(fileName)}" alt="Viewport screenshot showing focused element obscured by overlay" loading="lazy">
+  <div class="screenshot-label">${escapeHtml(s.viewportLabel)}</div>
+  <img src="${escapeHtml(fileName)}" alt="${escapeHtml(s.viewportAlt)}" loading="lazy">
 </div>`;
             }
             const focusedFile = fileName.replace("_diff.png", "_focused.png");
             const unfocusedFile = fileName.replace("_diff.png", "_unfocused.png");
             return `<div class="screenshot-pair">
   <div class="screenshot-item">
-    <div class="screenshot-label">Unfocused</div>
-    <img src="${escapeHtml(unfocusedFile)}" alt="Element without focus" loading="lazy">
+    <div class="screenshot-label">${escapeHtml(s.unfocusedLabel)}</div>
+    <img src="${escapeHtml(unfocusedFile)}" alt="${escapeHtml(s.unfocusedAlt)}" loading="lazy">
   </div>
   <div class="screenshot-item">
-    <div class="screenshot-label">Focused</div>
-    <img src="${escapeHtml(focusedFile)}" alt="Element with focus" loading="lazy">
+    <div class="screenshot-label">${escapeHtml(s.focusedLabel)}</div>
+    <img src="${escapeHtml(focusedFile)}" alt="${escapeHtml(s.focusedAlt)}" loading="lazy">
   </div>
   <div class="screenshot-item">
-    <div class="screenshot-label">Difference</div>
-    <img src="${escapeHtml(fileName)}" alt="Pixel difference showing focus indicator" loading="lazy">
+    <div class="screenshot-label">${escapeHtml(s.diffLabel)}</div>
+    <img src="${escapeHtml(fileName)}" alt="${escapeHtml(s.diffAlt)}" loading="lazy">
   </div>
 </div>`;
           })()
@@ -501,15 +518,15 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
       issueCardsHtml += `
   <div class="issue-card" style="border-left-color:${colors.bg}">
     <div class="issue-top">
-      <span class="severity-badge" style="background:${colors.bg};color:${colors.text}">${SEVERITY_LABELS[issue.severity]}</span>
+      <span class="severity-badge" style="background:${colors.bg};color:${colors.text}">${escapeHtml(severityLabel)}</span>
       <span class="check-badge">${escapeHtml(issue.checkId)}: ${escapeHtml(checkName)}</span>
-      <span class="wcag-ref">WCAG ${escapeHtml(issue.wcagCriterion)}</span>
+      <span class="wcag-ref">${escapeHtml(lv.report.wcagPrefix)} ${escapeHtml(issue.wcagCriterion)}</span>
     </div>
     <div class="issue-element" title="${escapeHtml(issue.elementSelector)}"><code>${escapeHtml(shortSel)}</code></div>
     <div class="issue-description">${escapeHtml(issue.description)}</div>
     ${screenshotHtml}
     <details class="remediation-details">
-      <summary>How to fix</summary>
+      <summary>${escapeHtml(lv.report.howToFix)}</summary>
       <div class="remediation-text">${escapeHtml(issue.remediation)}</div>
     </details>
   </div>
@@ -520,11 +537,11 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
   }
 
   const html = `<!DOCTYPE html>
-<html lang="en">
+<html lang="lv">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Keyboard Accessibility Report — ${escapeHtml(url)}</title>
+<title>${escapeHtml(lv.report.title)} — ${escapeHtml(url)}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -672,45 +689,6 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
     height: 100%;
     border-radius: 3px;
     transition: width 0.4s ease;
-  }
-
-  /* ---- Key stats row ---- */
-  .stats-row {
-    display: flex;
-    gap: 14px;
-    margin-bottom: 28px;
-  }
-  .stat-item {
-    flex: 1;
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 12px 16px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-  .stat-icon {
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 16px;
-    font-weight: 800;
-    flex-shrink: 0;
-  }
-  .stat-text .stat-value {
-    font-size: 20px;
-    font-weight: 800;
-    line-height: 1.2;
-  }
-  .stat-text .stat-label {
-    font-size: 11px;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
   }
 
   /* Module sections */
@@ -882,7 +860,6 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
     .content { padding: 16px; }
     .report-header { padding: 20px 16px; }
     .module-summary-grid { grid-template-columns: 1fr; }
-    .stats-row { flex-direction: column; }
     .issue-top { flex-direction: column; align-items: flex-start; }
     .wcag-ref { margin-left: 0; }
   }
@@ -891,100 +868,100 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
 <body>
 
 <div class="report-header">
-  <h1>Keyboard Accessibility Report</h1>
+  <h1>${escapeHtml(lv.report.title)}</h1>
   <p class="meta">
     <a href="${escapeHtml(url)}">${escapeHtml(url)}</a><br>
-    Generated: ${escapeHtml(new Date(timestamp).toLocaleString())} &middot; Duration: ${duration}s
+    ${escapeHtml(lv.report.generated)}: ${escapeHtml(new Date(timestamp).toLocaleString("lv-LV"))} &middot; ${escapeHtml(lv.report.duration)}: ${duration}s
   </p>
 </div>
 
 ${pageScreenshotPath ? `<div class="page-screenshot">
-  <img src="${escapeHtml(path.basename(pageScreenshotPath))}" alt="Screenshot of ${escapeHtml(url)} at page load" loading="lazy">
+  <img src="${escapeHtml(path.basename(pageScreenshotPath))}" alt="${escapeHtml(lv.report.pageScreenshotAlt(url))}" loading="lazy">
 </div>` : ""}
 
 <div class="content">
 
 <!-- ===== Severity Distribution Bar ===== -->
 <div class="severity-bar-section">
-  <div class="severity-bar-label">${summary.totalIssues} issues found</div>
+  <div class="severity-bar-label">${escapeHtml(lv.report.issuesFoundLabel(summary.totalIssues))}</div>
   <div class="severity-bar">
     ${summary.criticalCount > 0 ? `<div class="seg" style="width:${critPct}%;background:#dc2626"><span>${summary.criticalCount}</span></div>` : ""}
     ${summary.warningCount > 0 ? `<div class="seg" style="width:${warnPct}%;background:#d97706"><span>${summary.warningCount}</span></div>` : ""}
     ${summary.moderateCount > 0 ? `<div class="seg" style="width:${modPct}%;background:#2563eb"><span>${summary.moderateCount}</span></div>` : ""}
     ${summary.infoCount > 0 ? `<div class="seg" style="width:${infoPct}%;background:#6b7280"><span>${summary.infoCount}</span></div>` : ""}
-    ${summary.totalIssues === 0 ? `<div class="seg" style="width:100%;background:#059669"><span>No issues</span></div>` : ""}
+    ${summary.totalIssues === 0 ? `<div class="seg" style="width:100%;background:#059669"><span>${escapeHtml(lv.report.severityBar.noIssues)}</span></div>` : ""}
   </div>
   <div class="severity-legend">
-    ${summary.criticalCount > 0 ? `<div class="severity-legend-item"><div class="severity-legend-dot" style="background:#dc2626"></div>${summary.criticalCount} Critical</div>` : ""}
-    ${summary.warningCount > 0 ? `<div class="severity-legend-item"><div class="severity-legend-dot" style="background:#d97706"></div>${summary.warningCount} Warning</div>` : ""}
-    ${summary.moderateCount > 0 ? `<div class="severity-legend-item"><div class="severity-legend-dot" style="background:#2563eb"></div>${summary.moderateCount} Moderate</div>` : ""}
-    ${summary.infoCount > 0 ? `<div class="severity-legend-item"><div class="severity-legend-dot" style="background:#6b7280"></div>${summary.infoCount} Info</div>` : ""}
+    ${summary.criticalCount > 0 ? `<div class="severity-legend-item"><div class="severity-legend-dot" style="background:#dc2626"></div>${summary.criticalCount} ${escapeHtml(capitalize(lv.severityPlural.critical))}</div>` : ""}
+    ${summary.warningCount > 0 ? `<div class="severity-legend-item"><div class="severity-legend-dot" style="background:#d97706"></div>${summary.warningCount} ${escapeHtml(capitalize(lv.severityPlural.warning))}</div>` : ""}
+    ${summary.moderateCount > 0 ? `<div class="severity-legend-item"><div class="severity-legend-dot" style="background:#2563eb"></div>${summary.moderateCount} ${escapeHtml(capitalize(lv.severityPlural.moderate))}</div>` : ""}
+    ${summary.infoCount > 0 ? `<div class="severity-legend-item"><div class="severity-legend-dot" style="background:#6b7280"></div>${summary.infoCount} ${escapeHtml(capitalize(lv.severityPlural.info))}</div>` : ""}
   </div>
 </div>
 
 <!-- ===== Module Summary Cards ===== -->
 <div class="module-summary-grid">
-  <!-- Module 1: Focus Traversal -->
+  <!-- Module 1 -->
   <div class="module-summary-card" style="border-top-color:#2563eb">
-    <div class="ms-title" style="color:#2563eb">Focus Traversal &amp; Order</div>
+    <div class="ms-title" style="color:#2563eb">${escapeHtml(lv.report.modules.m1.name)}</div>
     <div class="ms-metric">
       <span class="ms-value">${summary.totalTabStops}</span>
-      <span class="ms-unit">tab stops</span>
+      <span class="ms-unit">${escapeHtml(lv.report.modules.m1.metric)}</span>
     </div>
     <div class="ms-details">
       ${m1Issues.length === 0
-        ? `<span class="ms-tag" style="background:#ecfdf5;color:#059669">All clear</span>`
-        : `${m1Criticals > 0 ? `<span class="ms-tag" style="background:#fef2f2;color:#dc2626">${m1Criticals} critical</span>` : ""}${m1Warnings > 0 ? `<span class="ms-tag" style="background:#fffbeb;color:#d97706">${m1Warnings} warning</span>` : ""}`
+        ? `<span class="ms-tag" style="background:#ecfdf5;color:#059669">${escapeHtml(lv.report.modules.allClear)}</span>`
+        : `${m1Criticals > 0 ? `<span class="ms-tag" style="background:#fef2f2;color:#dc2626">${m1Criticals} ${escapeHtml(lv.severityPlural.critical)}</span>` : ""}${m1Warnings > 0 ? `<span class="ms-tag" style="background:#fffbeb;color:#d97706">${m1Warnings} ${escapeHtml(lv.severityPlural.warning)}</span>` : ""}`
       }
-      ${m1Traps > 0 ? `<br>${m1Traps} keyboard trap${m1Traps > 1 ? "s" : ""}` : ""}
-      ${m1Obscured > 0 ? `<br>${m1Obscured} obscured element${m1Obscured > 1 ? "s" : ""}` : ""}
+      ${m1Traps > 0 ? `<br>${escapeHtml(lv.report.modules.m1.trapCount(m1Traps))}` : ""}
+      ${m1Obscured > 0 ? `<br>${escapeHtml(lv.report.modules.m1.obscuredCount(m1Obscured))}` : ""}
     </div>
   </div>
 
-  <!-- Module 2: Focus Indicators -->
+  <!-- Module 2 -->
   <div class="module-summary-card" style="border-top-color:#7c3aed">
-    <div class="ms-title" style="color:#7c3aed">Focus Indicator Visibility</div>
+    <div class="ms-title" style="color:#7c3aed">${escapeHtml(lv.report.modules.m2.name)}</div>
     <div class="ms-metric">
       <span class="ms-value" style="color:${scoreColor}">${summary.averageVisibilityScore}</span>
-      <span class="ms-unit">/ 100 avg score</span>
+      <span class="ms-unit">${escapeHtml(lv.report.modules.m2.metricUnit)}</span>
     </div>
     <div class="ms-bar-bg"><div class="ms-bar-fill" style="width:${summary.averageVisibilityScore}%;background:${scoreColor}"></div></div>
     <div class="ms-details">
       ${m2Issues.length === 0
-        ? `<span class="ms-tag" style="background:#ecfdf5;color:#059669">All clear</span>`
-        : `${m2Criticals > 0 ? `<span class="ms-tag" style="background:#fef2f2;color:#dc2626">${m2Criticals} critical</span>` : ""}${m2Warnings > 0 ? `<span class="ms-tag" style="background:#fffbeb;color:#d97706">${m2Warnings} warning</span>` : ""}`
+        ? `<span class="ms-tag" style="background:#ecfdf5;color:#059669">${escapeHtml(lv.report.modules.allClear)}</span>`
+        : `${m2Criticals > 0 ? `<span class="ms-tag" style="background:#fef2f2;color:#dc2626">${m2Criticals} ${escapeHtml(lv.severityPlural.critical)}</span>` : ""}${m2Warnings > 0 ? `<span class="ms-tag" style="background:#fffbeb;color:#d97706">${m2Warnings} ${escapeHtml(lv.severityPlural.warning)}</span>` : ""}`
       }
     </div>
   </div>
 
-  <!-- Module 3: Coverage -->
+  <!-- Module 3 -->
   <div class="module-summary-card" style="border-top-color:#059669">
-    <div class="ms-title" style="color:#059669">Interactive Element Coverage</div>
+    <div class="ms-title" style="color:#059669">${escapeHtml(lv.report.modules.m3.name)}</div>
     <div class="ms-metric">
       <span class="ms-value" style="color:${coverageColor}">${summary.keyboardCoveragePercent}%</span>
-      <span class="ms-unit">keyboard coverage</span>
+      <span class="ms-unit">${escapeHtml(lv.report.modules.m3.metricUnit)}</span>
     </div>
     <div class="ms-bar-bg"><div class="ms-bar-fill" style="width:${summary.keyboardCoveragePercent}%;background:${coverageColor}"></div></div>
     <div class="ms-details">
       ${m3Issues.length === 0
-        ? `<span class="ms-tag" style="background:#ecfdf5;color:#059669">All clear</span>`
-        : `${m3Criticals > 0 ? `<span class="ms-tag" style="background:#fef2f2;color:#dc2626">${m3Criticals} critical</span>` : ""}${m3Warnings > 0 ? `<span class="ms-tag" style="background:#fffbeb;color:#d97706">${m3Warnings} warning</span>` : ""}`
+        ? `<span class="ms-tag" style="background:#ecfdf5;color:#059669">${escapeHtml(lv.report.modules.allClear)}</span>`
+        : `${m3Criticals > 0 ? `<span class="ms-tag" style="background:#fef2f2;color:#dc2626">${m3Criticals} ${escapeHtml(lv.severityPlural.critical)}</span>` : ""}${m3Warnings > 0 ? `<span class="ms-tag" style="background:#fffbeb;color:#d97706">${m3Warnings} ${escapeHtml(lv.severityPlural.warning)}</span>` : ""}`
       }
-      ${m3Unreachable > 0 ? `<br>${m3Unreachable} unreachable element${m3Unreachable > 1 ? "s" : ""}` : ""}
-      ${m3NonSemantic > 0 ? `<br>${m3NonSemantic} non-semantic control${m3NonSemantic > 1 ? "s" : ""}` : ""}
+      ${m3Unreachable > 0 ? `<br>${escapeHtml(lv.report.modules.m3.unreachableCount(m3Unreachable))}` : ""}
+      ${m3NonSemantic > 0 ? `<br>${escapeHtml(lv.report.modules.m3.nonSemanticCount(m3NonSemantic))}` : ""}
     </div>
   </div>
 </div>
 
 <!-- ===== Issues ===== -->
 ${issues.length === 0
-  ? '<div class="pass-message">No keyboard accessibility issues detected.</div>'
+  ? `<div class="pass-message">${escapeHtml(lv.report.noIssues)}</div>`
   : issueCardsHtml}
 
 </div>
 
 <div class="report-footer">
-  Generated by Keyboard Accessibility Evaluation Tool &middot; WCAG 2.2
+  ${escapeHtml(lv.report.footer)}
 </div>
 
 </body>

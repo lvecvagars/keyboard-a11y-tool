@@ -4,6 +4,12 @@
  * This module runs the full M1 → M2 → M3 pipeline and emits progress
  * events via a callback. Both the CLI (index.ts) and the web server
  * (server.ts) use this same function.
+ *
+ * Progress messages come in two kinds:
+ *   - User-facing prose (in Latvian, via lv.progress.*) for things
+ *     that appear in the frontend log a demo viewer would read.
+ *   - Technical check-ID lines (kept in English) — they stream to the
+ *     same log but read better with check IDs and raw numbers intact.
  */
 
 import * as fs from "fs"
@@ -31,6 +37,7 @@ import {
   ReportData,
 } from "./reports/generator";
 import { TabStop, ReportIssue } from "./types";
+import { lv } from "./i18n/lv";
 import * as path from "path";
 
 /**
@@ -65,19 +72,12 @@ export interface EvaluationResult {
 }
 
 /**
- * Run the full keyboard accessibility evaluation on a URL.
- *
- * @param url        - The page to evaluate
- * @param onProgress - Called with human-readable status messages during the run
- * @returns The completed report data and file paths
- */
-/**
  * Normalize a URL: prepend https:// if no protocol is given,
  * and do a basic format check.
  */
 function normalizeUrl(raw: string): string {
   let url = raw.trim();
-  if (!url) throw new Error("URL is empty");
+  if (!url) throw new Error(lv.errors.emptyUrl);
 
   // Local file path → file:// URL
   if (url.startsWith("/") || url.startsWith("./") || url.startsWith("../") || /^[a-zA-Z]:\\/.test(url) || url.endsWith(".html") || url.endsWith(".htm")) {
@@ -93,12 +93,19 @@ function normalizeUrl(raw: string): string {
   try {
     new URL(url);
   } catch {
-    throw new Error(`Invalid URL: "${raw}". Please enter a valid web address.`);
+    throw new Error(lv.errors.invalidUrl(raw));
   }
 
   return url;
 }
 
+/**
+ * Run the full keyboard accessibility evaluation on a URL.
+ *
+ * @param url        - The page to evaluate
+ * @param onProgress - Called with human-readable status messages during the run
+ * @returns The completed report data and file paths
+ */
 export async function runEvaluation(
   rawUrl: string,
   onProgress: ProgressCallback = () => {}
@@ -106,7 +113,7 @@ export async function runEvaluation(
   const url = normalizeUrl(rawUrl);
   const startTime = Date.now();
 
-  onProgress("Launching browser and navigating to page...");
+  onProgress(lv.progress.launching);
 
   let browserContext;
   try {
@@ -115,18 +122,18 @@ export async function runEvaluation(
     const msg = err instanceof Error ? err.message : String(err);
     // Translate common Playwright navigation errors into clear messages
     if (msg.includes("ERR_NAME_NOT_RESOLVED") || msg.includes("getaddrinfo")) {
-      throw new Error(`Could not resolve hostname. Check that "${url}" is a valid, reachable address.`);
+      throw new Error(lv.errors.nameNotResolved(url));
     }
     if (msg.includes("ERR_CONNECTION_REFUSED")) {
-      throw new Error(`Connection refused by "${url}". The server may be down or not accepting connections.`);
+      throw new Error(lv.errors.connectionRefused(url));
     }
     if (msg.includes("ERR_CERT") || msg.includes("SSL")) {
-      throw new Error(`SSL/certificate error for "${url}". The site may have an invalid or expired certificate.`);
+      throw new Error(lv.errors.certError(url));
     }
     if (msg.includes("Timeout") || msg.includes("timeout")) {
-      throw new Error(`Page load timed out for "${url}". The site may be too slow or unresponsive.`);
+      throw new Error(lv.errors.timeout(url));
     }
-    throw new Error(`Failed to load "${url}": ${msg}`);
+    throw new Error(lv.errors.loadFailed(url, msg));
   }
 
   const { browser, page } = browserContext;
@@ -142,14 +149,15 @@ export async function runEvaluation(
     const pageScreenshotPath = path.join(outputDir, "page-screenshot.png");
     try {
       await page.screenshot({ path: pageScreenshotPath, type: "png" });
-      onProgress("Captured page screenshot");
+      onProgress(lv.progress.capturedScreenshot);
     } catch {
-      onProgress("Warning: Could not capture page screenshot");
+      onProgress(lv.progress.screenshotFailed);
     }
 
     // ============================================================
     // MODULE 1: Focus Traversal & Order Analysis
     // ============================================================
+    // Technical progress lines with check IDs stay in English.
     onProgress("M1-01: Recording forward tab sequence...");
     const forwardStops = await recordTabStops(page, "forward");
     const uniqueStops = deduplicateStops(forwardStops);
@@ -244,7 +252,7 @@ export async function runEvaluation(
     // ============================================================
     // REPORT GENERATION
     // ============================================================
-    onProgress("Generating report...");
+    onProgress(lv.progress.generatingReport);
 
     const allIssues: ReportIssue[] = [
       ...generateM1Issues(
@@ -269,7 +277,8 @@ export async function runEvaluation(
     const jsonPath = writeJsonReport(report, outputDir);
     const htmlPath = writeHtmlReport(report, outputDir, pageScreenshotPath);
 
-    onProgress(`Done! ${allIssues.length} issues found (${report.summary.criticalCount} critical). Duration: ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
+    const seconds = ((Date.now() - startTime) / 1000).toFixed(1);
+    onProgress(lv.progress.done(allIssues.length, report.summary.criticalCount, seconds));
 
     return { report, outputDir, jsonPath, htmlPath };
   } finally {

@@ -10,6 +10,7 @@
 import express from "express";
 import * as path from "path";
 import { runEvaluation } from "./evaluate";
+import { lv } from "./i18n/lv";
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -40,12 +41,12 @@ app.post("/api/evaluate", async (req, res) => {
   const { url } = req.body;
 
   if (!url || typeof url !== "string") {
-    res.status(400).json({ error: "Missing or invalid 'url' in request body" });
+    res.status(400).json({ error: lv.errors.missingUrl });
     return;
   }
 
   if (isRunning) {
-    res.status(409).json({ error: "An evaluation is already running. Please wait." });
+    res.status(409).json({ error: lv.errors.evaluationAlreadyRunning });
     return;
   }
 
@@ -82,7 +83,7 @@ app.post("/api/evaluate", async (req, res) => {
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    sendEvent("error", { message: `Evaluation failed: ${message}` });
+    sendEvent("error", { message: lv.errors.evaluationFailed(message) });
   } finally {
     isRunning = false;
     res.end();

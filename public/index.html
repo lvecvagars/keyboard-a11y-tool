@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="lv">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Keyboard Accessibility Evaluator</title>
+  <title>Tastatūras piekļūstamības izvērtētājs</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -234,15 +234,15 @@
 <body>
 
   <div class="header">
-    <h1>Keyboard Accessibility Evaluator</h1>
-    <p>Automated WCAG 2.2 keyboard accessibility evaluation — 13 checks across 3 modules</p>
+    <h1>Tastatūras piekļūstamības izvērtētājs</h1>
+    <p>Automatizēta tīmekļvietņu novērtēšana atbilstoši WCAG 2.2 — 13 pārbaudes trīs moduļos</p>
   </div>
 
   <div class="container">
 
     <!-- URL input -->
     <div class="input-section">
-      <label for="url-input">Page URL to evaluate</label>
+      <label for="url-input">Tīmekļvietnes adrese izvērtējumam</label>
       <div class="input-row">
         <input
           type="url"
@@ -251,7 +251,7 @@
           value="https://example.com"
           autocomplete="url"
         >
-        <button id="start-btn">Evaluate</button>
+        <button id="start-btn">Izvērtēt</button>
       </div>
     </div>
 
@@ -262,14 +262,14 @@
     <div class="progress-section" id="progress-section">
       <h2>
         <div class="spinner" id="spinner"></div>
-        <span id="progress-title">Evaluation in progress...</span>
+        <span id="progress-title">Notiek izvērtēšana...</span>
       </h2>
       <div class="progress-log" id="progress-log"></div>
     </div>
 
     <!-- Results -->
     <div class="result-section" id="result-section">
-      <h2>Results</h2>
+      <h2>Rezultāti</h2>
       <div class="summary-grid" id="summary-grid"></div>
       <div class="report-links" id="report-links"></div>
     </div>
@@ -277,6 +277,28 @@
   </div>
 
   <script>
+    // ---- i18n strings ----
+    // Kept inline because this is vanilla JS — no module imports.
+    // Mirrors the structure of src/i18n/lv.ts. When adding strings,
+    // keep these in sync.
+    const T = {
+      errorEmptyUrl: "Lūdzu, ievadiet tīmekļvietnes adresi.",
+      starting: (url) => "Uzsāk izvērtēšanu: " + url,
+      inProgress: "Notiek izvērtēšana...",
+      finished: "Izvērtēšana pabeigta",
+      serverError: "Servera kļūda",
+
+      tabStops: "TAB punkti",
+      issues: "Atrastās problēmas",
+      critical: "Kritiskas",
+      warnings: "Brīdinājumi",
+      avgScore: "Vid. vizuālā fokusa vērtējums",
+      coverage: "Tastatūras pārklājums",
+
+      openHtmlReport: "Atvērt HTML atskaiti",
+      downloadJson: "Lejupielādēt JSON",
+    };
+
     const urlInput = document.getElementById("url-input");
     const startBtn = document.getElementById("start-btn");
     const errorBanner = document.getElementById("error-banner");
@@ -303,7 +325,7 @@
     function startEvaluation() {
       const raw = urlInput.value.trim();
       if (!raw) {
-        showError("Please enter a URL.");
+        showError(T.errorEmptyUrl);
         return;
       }
       const url = normalizeUrl(raw);
@@ -316,12 +338,12 @@
       summaryGrid.innerHTML = "";
       reportLinks.innerHTML = "";
       progressSection.classList.add("visible");
-      progressTitle.textContent = "Evaluation in progress...";
+      progressTitle.textContent = T.inProgress;
       spinner.style.display = "";
       startBtn.disabled = true;
       urlInput.disabled = true;
 
-      addLogLine("Starting evaluation for " + url, "info");
+      addLogLine(T.starting(url), "info");
 
       // Use fetch to POST, then read the response as an SSE stream.
       // We can't use EventSource here because EventSource only does GET.
@@ -335,7 +357,7 @@
           if (!response.ok) {
             // Non-SSE error (e.g. 400, 409)
             return response.json().then((data) => {
-              throw new Error(data.error || "Server error");
+              throw new Error(data.error || T.serverError);
             });
           }
           return readSSEStream(response.body);
@@ -403,12 +425,14 @@
 
     /**
      * Determine a CSS class for color-coding log lines by module.
+     * Matches check IDs (M1-, M2-, M3-) which stay in English in the log.
+     * Also matches the Latvian "Pabeigts" completion marker.
      */
     function getModuleClass(msg) {
       if (msg.startsWith("M1") || msg.includes("M1-")) return "module-m1";
       if (msg.startsWith("M2") || msg.includes("M2")) return "module-m2";
       if (msg.startsWith("M3") || msg.includes("M3")) return "module-m3";
-      if (msg.startsWith("Done")) return "done";
+      if (msg.startsWith("Pabeigts") || msg.startsWith("Done")) return "done";
       return "info";
     }
 
@@ -424,7 +448,7 @@
       startBtn.disabled = false;
       urlInput.disabled = false;
       spinner.style.display = "none";
-      progressTitle.textContent = "Evaluation finished";
+      progressTitle.textContent = T.finished;
     }
 
     function showError(msg) {
@@ -451,35 +475,35 @@
       summaryGrid.innerHTML = `
         <div class="summary-card">
           <div class="value">${s.totalTabStops}</div>
-          <div class="label">Tab Stops</div>
+          <div class="label">${T.tabStops}</div>
         </div>
         <div class="summary-card">
           <div class="value" style="color:${s.criticalCount > 0 ? "#dc2626" : "#059669"}">${s.totalIssues}</div>
-          <div class="label">Issues Found</div>
+          <div class="label">${T.issues}</div>
         </div>
         <div class="summary-card">
           <div class="value" style="color:${s.criticalCount > 0 ? "#dc2626" : "#059669"}">${s.criticalCount}</div>
-          <div class="label">Critical</div>
+          <div class="label">${T.critical}</div>
         </div>
         <div class="summary-card">
           <div class="value" style="color:#d97706">${s.warningCount}</div>
-          <div class="label">Warnings</div>
+          <div class="label">${T.warnings}</div>
         </div>
         <div class="summary-card">
           <div class="value" style="color:${scoreColor}">${s.averageVisibilityScore}/100</div>
-          <div class="label">Avg Visibility Score</div>
+          <div class="label">${T.avgScore}</div>
           <div class="bar-bg"><div class="bar-fill" style="width:${s.averageVisibilityScore}%;background:${scoreColor}"></div></div>
         </div>
         <div class="summary-card">
           <div class="value" style="color:${coverageColor}">${s.keyboardCoveragePercent}%</div>
-          <div class="label">Keyboard Coverage</div>
+          <div class="label">${T.coverage}</div>
           <div class="bar-bg"><div class="bar-fill" style="width:${s.keyboardCoveragePercent}%;background:${coverageColor}"></div></div>
         </div>
       `;
 
       reportLinks.innerHTML = `
-        <a href="${data.htmlReportUrl}" target="_blank" class="btn-primary">Open HTML Report</a>
-        <a href="${data.jsonReportUrl}" target="_blank" class="btn-secondary">Download JSON</a>
+        <a href="${data.htmlReportUrl}" target="_blank" class="btn-primary">${T.openHtmlReport}</a>
+        <a href="${data.jsonReportUrl}" target="_blank" class="btn-secondary">${T.downloadJson}</a>
       `;
     }
   </script>
