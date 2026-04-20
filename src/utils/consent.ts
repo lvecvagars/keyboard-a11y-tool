@@ -16,6 +16,7 @@
  */
 
 import { Page, Frame } from "playwright";
+export type { Page, Frame };
 
 /** How long to wait for a consent modal to appear after page load */
 const CONSENT_WAIT_MS = 2000;
@@ -85,6 +86,7 @@ const ACCEPT_TEXT_PATTERNS = [
   /^apstiprināt$/i,
   /^pieņemt\s*(visu|visas)?$/i,
   /^atļaut\s*sīkdatnes?$/i,
+  /^piekrist\s*(visam|visām|visiem)?$/i,
 
   // German
   /^alle\s*akzeptieren$/i,
@@ -227,7 +229,8 @@ async function tryHeuristicInFrame(
             const parent = htmlEl.closest(
               '[class*="cookie"], [class*="consent"], [class*="gdpr"], ' +
               '[class*="privacy"], [id*="cookie"], [id*="consent"], ' +
-              '[id*="gdpr"], [id*="cmp"], [role="dialog"], [aria-modal="true"]'
+              '[id*="gdpr"], [id*="cmp"], [id*="sikdat"], [class*="sikdat"], ' +
+              '[role="dialog"], [aria-modal="true"]'
             );
             if (parent) {
               htmlEl.click();

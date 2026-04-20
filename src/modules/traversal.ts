@@ -53,7 +53,11 @@ const TRAP_CONFIRM_EXTRA_PRESSES = 6;
  *   3. nth-of-type path fallback (least stable on SPAs)
  */
 export async function injectHelpers(page: Page): Promise<void> {
-  await page.exposeFunction("__buildSelector", async () => "");
+  try {
+    await page.exposeFunction("__buildSelector", async () => "");
+  } catch {
+    // Already registered from a previous call — safe to ignore
+  }
   await page.evaluate(() => {
     (window as any).__getSelector = function (el: Element): string {
       // Strategy 1: ID

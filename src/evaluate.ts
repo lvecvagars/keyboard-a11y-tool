@@ -143,12 +143,12 @@ export async function runEvaluation(
     await injectHelpers(page);
 
     // ---- Dismiss consent modals ----
-    // Many sites show cookie/GDPR consent modals that block keyboard
-    // access to the underlying page. Try to dismiss them before
-    // starting the evaluation so we test the actual site content.
     const consentResult = await dismissConsentModal(page);
     if (consentResult) {
       onProgress(`Consent: ${consentResult}`);
+      // Re-inject helpers — clicking the consent button may have
+      // triggered a page reload or navigation that wiped them out.
+      await injectHelpers(page);
     } else {
       onProgress("Consent: no modal detected");
     }
