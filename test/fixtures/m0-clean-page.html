@@ -1,0 +1,143 @@
+<!--
+  FIXTURE: Fully clean page (no issues expected)
+
+  A well-built page that passes all 13 checks:
+    - M1-01: Clean forward/backward tab sequence
+    - M1-02: No keyboard traps
+    - M1-03: DOM order matches visual order, no positive tabindex
+    - M1-04: Working skip link with valid target
+    - M1-05: No sticky/fixed elements obscuring focus
+    - M2-01: All elements have visible focus indicators
+    - M2-02: No outline:none without replacement
+    - M2-03: Focus indicators have ≥3:1 contrast
+    - M2-04: Focus indicators meet minimum area (≥2px perimeter)
+    - M2-05: All scores should be "good" or "excellent"
+    - M3-01: All interactive elements are keyboard-reachable
+    - M3-02: No non-semantic interactive elements
+    - M3-03: No inaccessible scrollable regions
+
+  Expected: 0 total issues.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Fully clean page</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 0;
+      margin: 0;
+      background: #ffffff;
+      color: #111827;
+    }
+
+    /* Skip link — always in layout flow, visually hidden via
+       transparent colors until focused. This avoids the screenshot-
+       diff noise that show/hide patterns (clip-rect, top:-9999px)
+       cause: the element occupies the same space in both states,
+       so the only diff is the outline + color change. */
+    .skip-link {
+      display: inline-block;
+      padding: 8px 16px;
+      text-decoration: none;
+      font-weight: bold;
+      color: transparent;
+      background: transparent;
+    }
+    .skip-link:focus {
+      color: #111827;
+      background: #ffffff;
+      outline: 3px solid #2563eb;
+      outline-offset: 2px;
+    }
+
+    /* Navigation — no sticky/fixed positioning */
+    nav {
+      background: #f1f5f9;
+      padding: 12px 20px;
+    }
+    nav ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      gap: 12px;
+    }
+    nav a {
+      display: inline-block;
+      padding: 8px 12px;
+      background: #e2e8f0;
+      text-decoration: none;
+      color: #111827;
+      border-radius: 4px;
+    }
+
+    main {
+      padding: 24px 20px;
+      max-width: 600px;
+    }
+
+    h1 { font-size: 20px; margin-bottom: 16px; }
+
+    /* Strong, WCAG 2.4.13-compliant focus style on everything:
+       - 3px outline = well above 2px minimum area
+       - #2563eb on white = ~4.6:1 contrast (well above 3:1)
+    */
+    a:focus,
+    button:focus,
+    input:focus {
+      outline: 3px solid #2563eb;
+      outline-offset: 2px;
+    }
+
+    form {
+      margin-top: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-width: 300px;
+    }
+    input, button {
+      padding: 8px 12px;
+      font-size: 14px;
+    }
+    button {
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <!-- M1-04: Working skip link -->
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+
+  <nav>
+    <ul>
+      <li><a href="#home">Home</a></li>
+      <li><a href="#about">About</a></li>
+      <li><a href="#contact">Contact</a></li>
+    </ul>
+  </nav>
+
+  <main id="main-content" tabindex="-1">
+    <h1>Fully accessible page</h1>
+    <p>This page should produce zero keyboard accessibility issues.</p>
+
+    <form onsubmit="event.preventDefault()">
+      <label>
+        Name
+        <input type="text" name="name">
+      </label>
+      <label>
+        Email
+        <input type="email" name="email">
+      </label>
+      <button type="submit">Submit</button>
+    </form>
+  </main>
+</body>
+</html>

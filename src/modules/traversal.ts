@@ -28,6 +28,22 @@ const ESCAPE_KEYS = [
 ];
 
 /**
+ * How many times the same small set must repeat to suspect a trap.
+ * With TRAP_UNIQUE_THRESHOLD=4 unique elements and TRAP_CYCLE_REPEATS=3,
+ * we need to see the same ≤3 elements cycle 3 times (i.e., 9–12 consecutive
+ * stops with no new element appearing).
+ */
+const TRAP_UNIQUE_THRESHOLD = 4;
+const TRAP_CYCLE_REPEATS = 3;
+
+/**
+ * Once a trap is suspected during traversal, how many additional presses
+ * to confirm it before breaking out. Keeps the traversal from spinning
+ * for hundreds of presses inside a trap.
+ */
+const TRAP_CONFIRM_EXTRA_PRESSES = 6;
+
+/**
  * Expose the selector builder inside the browser context.
  * Call this once after navigation, before running any checks.
  *
@@ -46,7 +62,6 @@ export async function injectHelpers(page: Page): Promise<void> {
       }
 
       // Strategy 2: Unique attribute-based selector
-      // Try combinations that are likely unique and stable across re-renders
       const tag = el.tagName.toLowerCase();
       const attrs: [string, string | null][] = [
         ["href", el.getAttribute("href")],
@@ -58,8 +73,6 @@ export async function injectHelpers(page: Page): Promise<void> {
 
       for (const [attr, val] of attrs) {
         if (val) {
-          // Use quoted attribute value — avoids CSS.escape round-trip issues
-          // Only need to escape quotes and backslashes within the value
           const escaped = val.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
           const candidate = tag + "[" + attr + '="' + escaped + '"]';
           try {
@@ -73,8 +86,7 @@ export async function injectHelpers(page: Page): Promise<void> {
         }
       }
 
-      // Strategy 2b: For custom elements (tag name with a hyphen),
-      // the tag itself might be unique enough
+      // Strategy 2b: Custom elements
       if (tag.includes("-")) {
         const matches = document.querySelectorAll(tag);
         if (matches.length === 1) {
@@ -88,7 +100,6 @@ export async function injectHelpers(page: Page): Promise<void> {
       while (current && current !== document.documentElement) {
         let part = current.tagName.toLowerCase();
         if (current.id) {
-          // Anchor to nearest ancestor with an ID for a shorter, more stable path
           parts.unshift("#" + CSS.escape(current.id));
           break;
         }
@@ -110,74 +121,160 @@ export async function injectHelpers(page: Page): Promise<void> {
 }
 
 /**
+ * Get the selector of the currently focused element, or null if
+ * nothing meaningful is focused.
+ */
+async function getActiveSelector(page: Page): Promise<string | null> {
+  return page.evaluate(() => {
+    const el = document.activeElement;
+    if (!el || el === document.body || el === document.documentElement) {
+      return null;
+    }
+    return (window as any).__getSelector(el);
+  });
+}
+
+/**
+ * Get full info about the currently focused element.
+ */
+async function getActiveElementInfo(page: Page, startTime: number): Promise<{
+  selector: string;
+  tag: string;
+  role: string | null;
+  tabindex: number | null;
+  domOrder: number;
+  boundingBox: BoundingBox;
+  timestamp: number;
+} | null> {
+  const info = await page.evaluate(() => {
+    const el = document.activeElement;
+    if (!el || el === document.body || el === document.documentElement) {
+      return null;
+    }
+
+    const selector = (window as any).__getSelector(el);
+
+    const allElements = document.querySelectorAll("*");
+    let domOrder = 0;
+    for (let j = 0; j < allElements.length; j++) {
+      if (allElements[j] === el) {
+        domOrder = j;
+        break;
+      }
+    }
+
+    const rect = el.getBoundingClientRect();
+
+    return {
+      selector,
+      tag: el.tagName.toLowerCase(),
+      role: el.getAttribute("role"),
+      tabindex: el.hasAttribute("tabindex")
+        ? parseInt(el.getAttribute("tabindex")!, 10)
+        : null,
+      domOrder,
+      boundingBox: {
+        x: rect.x,
+        y: rect.y,
+        w: rect.width,
+        h: rect.height,
+      },
+    };
+  });
+
+  if (!info) return null;
+
+  return {
+    ...info,
+    boundingBox: info.boundingBox as BoundingBox,
+    timestamp: Date.now() - startTime,
+  };
+}
+
+// ---- Inline trap detector ----
+
+/**
+ * Lightweight trap detector that runs *during* the tab traversal.
+ *
+ * It maintains a sliding window of recent selectors. When the window
+ * contains fewer than TRAP_UNIQUE_THRESHOLD unique elements for
+ * TRAP_CYCLE_REPEATS full cycles, it signals a suspected trap.
+ *
+ * This lets recordTabStops() break out early instead of pressing Tab
+ * 500 times inside a trap.
+ */
+class InlineTrapDetector {
+  private recent: string[] = [];
+  private readonly windowSize: number;
+
+  constructor() {
+    // Window = max unique elements × required repeats
+    this.windowSize = TRAP_UNIQUE_THRESHOLD * TRAP_CYCLE_REPEATS;
+  }
+
+  /**
+   * Feed a new selector. Returns the set of trapped selectors if a
+   * trap is suspected, or null if traversal should continue.
+   */
+  push(selector: string): string[] | null {
+    this.recent.push(selector);
+
+    // Don't check until we have enough data
+    if (this.recent.length < this.windowSize) return null;
+
+    // Only keep the last windowSize entries
+    if (this.recent.length > this.windowSize) {
+      this.recent.shift();
+    }
+
+    const unique = new Set(this.recent);
+    if (unique.size < TRAP_UNIQUE_THRESHOLD) {
+      return Array.from(unique).sort();
+    }
+
+    return null;
+  }
+
+  /** Reset after breaking out of a trap */
+  reset(): void {
+    this.recent = [];
+  }
+}
+
+/**
  * M1-01: Full Tab Sequence Recording
  *
  * Presses Tab (or Shift+Tab) repeatedly, recording every element that
  * receives focus. Stops when focus cycles back to the first element
  * or the maximum threshold is reached.
+ *
+ * Integrates inline trap detection: if a trap is suspected during
+ * traversal, records it and breaks out early rather than pressing
+ * Tab hundreds of times inside the trapped set.
  */
 export async function recordTabStops(
   page: Page,
   direction: Direction
-): Promise<TabStop[]> {
+): Promise<{ stops: TabStop[]; inlineTraps: TrapResult[] }> {
   const stops: TabStop[] = [];
+  const inlineTraps: TrapResult[] = [];
   const startTime = Date.now();
+  const detector = new InlineTrapDetector();
 
   await page.evaluate(() => {
     (document.activeElement as HTMLElement)?.blur();
     document.body.focus();
   });
 
+  const key = direction === "forward" ? "Tab" : "Shift+Tab";
   let firstSelector: string | null = null;
 
   for (let i = 0; i < MAX_TAB_PRESSES; i++) {
-    if (direction === "forward") {
-      await page.keyboard.press("Tab");
-    } else {
-      await page.keyboard.press("Shift+Tab");
-    }
-
+    await page.keyboard.press(key);
     await page.waitForTimeout(50);
 
-    const info = await page.evaluate(() => {
-      const el = document.activeElement;
-      if (!el || el === document.body || el === document.documentElement) {
-        return null;
-      }
-
-      const selector = (window as any).__getSelector(el);
-
-      const allElements = document.querySelectorAll("*");
-      let domOrder = 0;
-      for (let j = 0; j < allElements.length; j++) {
-        if (allElements[j] === el) {
-          domOrder = j;
-          break;
-        }
-      }
-
-      const rect = el.getBoundingClientRect();
-
-      return {
-        selector,
-        tag: el.tagName.toLowerCase(),
-        role: el.getAttribute("role"),
-        tabindex: el.hasAttribute("tabindex")
-          ? parseInt(el.getAttribute("tabindex")!, 10)
-          : null,
-        domOrder,
-        boundingBox: {
-          x: rect.x,
-          y: rect.y,
-          w: rect.width,
-          h: rect.height,
-        },
-      };
-    });
-
-    if (!info) {
-      continue;
-    }
+    const info = await getActiveElementInfo(page, startTime);
+    if (!info) continue;
 
     if (firstSelector === null) {
       firstSelector = info.selector;
@@ -192,29 +289,99 @@ export async function recordTabStops(
       role: info.role,
       tabindex: info.tabindex,
       domOrder: info.domOrder,
-      boundingBox: info.boundingBox as BoundingBox,
-      timestamp: Date.now() - startTime,
+      boundingBox: info.boundingBox,
+      timestamp: info.timestamp,
     });
+
+    // ---- Inline trap detection ----
+    const trapped = detector.push(info.selector);
+    if (!trapped) continue;
+
+    // Suspected trap — confirm with a few more presses
+    let confirmed = true;
+    for (let extra = 0; extra < TRAP_CONFIRM_EXTRA_PRESSES; extra++) {
+      await page.keyboard.press(key);
+      await page.waitForTimeout(50);
+      const sel = await getActiveSelector(page);
+      if (sel && !trapped.includes(sel)) {
+        // Focus escaped the suspected set — false alarm
+        confirmed = false;
+        const extraInfo = await getActiveElementInfo(page, startTime);
+        if (extraInfo) {
+          stops.push({
+            index: stops.length,
+            selector: extraInfo.selector,
+            tag: extraInfo.tag,
+            role: extraInfo.role,
+            tabindex: extraInfo.tabindex,
+            domOrder: extraInfo.domOrder,
+            boundingBox: extraInfo.boundingBox,
+            timestamp: extraInfo.timestamp,
+          });
+          if (firstSelector && extraInfo.selector === firstSelector) {
+            return { stops, inlineTraps };
+          }
+          detector.reset();
+          detector.push(extraInfo.selector);
+        }
+        break;
+      }
+    }
+
+    if (confirmed) {
+      const escapeAttempts = await tryEscape(page, trapped);
+      const escaped = escapeAttempts.some((a) => a.escaped);
+
+      inlineTraps.push({
+        isTrap: !escaped,
+        trappedElements: trapped,
+        escapeAttempts,
+        location: trapped[0],
+      });
+
+      if (!escaped) {
+        // Confirmed hard trap — stop traversal
+        break;
+      }
+
+      // Escaped — reset detector and continue
+      detector.reset();
+      const newSel = await getActiveSelector(page);
+      if (newSel) {
+        detector.push(newSel);
+        if (firstSelector && newSel === firstSelector) break;
+      }
+    }
   }
 
-  return stops;
+  return { stops, inlineTraps };
 }
 
 /**
- * M1-02: Keyboard Trap Detection
+ * M1-02: Keyboard Trap Detection (post-traversal analysis)
  *
  * Analyzes a recorded tab stop sequence for repeating cycles.
- * If a suspected trap is found, navigates to it and attempts escape keys.
+ * This catches traps that the inline detector might miss (e.g.,
+ * traps with exactly TRAP_UNIQUE_THRESHOLD elements).
+ *
+ * The inline detector handles most traps during traversal; this
+ * function is a safety net that also handles the backward pass.
  */
 export async function detectTraps(
   page: Page,
-  stops: TabStop[]
+  stops: TabStop[],
+  inlineTraps: TrapResult[] = []
 ): Promise<TrapResult[]> {
-  const traps: TrapResult[] = [];
+  const traps: TrapResult[] = [...inlineTraps];
 
   if (stops.length < 10) {
     return traps;
   }
+
+  // Build a set of already-reported trapped element sets for deduplication
+  const alreadyReportedSets = new Set(
+    traps.map(t => [...t.trappedElements].sort().join("|"))
+  );
 
   const windowSize = 10;
   const isSubsetOf = (a: string[], b: string[]) =>
@@ -224,12 +391,12 @@ export async function detectTraps(
     const window = stops.slice(i, i + windowSize);
     const uniqueSelectors = new Set(window.map((s) => s.selector));
 
-    if (uniqueSelectors.size >= 4) {
+    if (uniqueSelectors.size >= TRAP_UNIQUE_THRESHOLD) {
       continue;
     }
 
     const cycleLength = uniqueSelectors.size;
-    const requiredLength = cycleLength * 3;
+    const requiredLength = cycleLength * TRAP_CYCLE_REPEATS;
 
     if (i + requiredLength > stops.length) {
       continue;
@@ -243,7 +410,15 @@ export async function detectTraps(
     }
 
     const trappedSet = Array.from(uniqueSelectors).sort();
+    const setKey = trappedSet.join("|");
 
+    // Skip if already reported by inline detector
+    if (alreadyReportedSets.has(setKey)) {
+      i += requiredLength - 1;
+      continue;
+    }
+
+    // Remove previous traps that are supersets of this one
     for (let j = traps.length - 1; j >= 0; j--) {
       if (
         isSubsetOf(trappedSet, traps[j].trappedElements) &&
@@ -272,6 +447,7 @@ export async function detectTraps(
       location: stops[i].selector,
     });
 
+    alreadyReportedSets.add(setKey);
     i += requiredLength - 1;
   }
 
@@ -299,13 +475,7 @@ async function tryEscape(
     await page.keyboard.press(key);
     await page.waitForTimeout(50);
 
-    const currentSelector = await page.evaluate(() => {
-      const el = document.activeElement;
-      if (!el || el === document.body || el === document.documentElement) {
-        return null;
-      }
-      return (window as any).__getSelector(el);
-    });
+    const currentSelector = await getActiveSelector(page);
 
     const escaped =
       currentSelector !== null && !trappedSelectors.includes(currentSelector);
@@ -322,13 +492,6 @@ async function tryEscape(
  * Checks if one of the first few tab stops is a skip link (an anchor
  * pointing to an in-page #id). If found, activates it and verifies
  * that focus actually moves to the target element.
- *
- * Fixed (2026-04-20): previously treated "focus stayed on the skip-
- * link anchor after Enter" as `reachable: true`. That's wrong —
- * pressing Enter on an anchor whose target doesn't exist leaves
- * focus on the anchor itself, which should be reported as
- * unreachable. We now compare activeElement against the skip-link
- * element and only consider focus "moved" if it went somewhere else.
  */
 export async function verifySkipLink(
   page: Page,
@@ -395,14 +558,11 @@ export async function verifySkipLink(
     await page.keyboard.press("Enter");
     await page.waitForTimeout(300);
 
-    // Pass the skip-link element's own selector into the evaluator so
-    // we can tell whether focus actually moved off the anchor.
     const targetInfo = await page.evaluate(
       (args: { expectedHref: string | null; skipLinkSelector: string }) => {
         const el = document.activeElement;
         const mainEl = document.querySelector("main, [role='main']");
 
-        // Resolve the skip-link element so we can compare by reference
         let skipEl: Element | null = null;
         try {
           skipEl = document.querySelector(args.skipLinkSelector);
@@ -410,10 +570,6 @@ export async function verifySkipLink(
           // Invalid selector — treat as not matching
         }
 
-        // Key fix: focus staying on the skip-link itself (or inside it)
-        // means the target is NOT reachable. This happens when the
-        // anchor's href points to a non-existent id or when Enter
-        // doesn't navigate for some other reason.
         const focusIsOnSkipLink =
           el !== null &&
           skipEl !== null &&
@@ -430,8 +586,6 @@ export async function verifySkipLink(
           return { reachable: true, selector: sel, isInMain };
         }
 
-        // Focus didn't move off the skip link.
-        // Check if the skip link navigated via href to a real element.
         if (args.expectedHref) {
           const targetId = args.expectedHref.replace("#", "");
           const target = document.getElementById(targetId);
@@ -443,16 +597,9 @@ export async function verifySkipLink(
               isInMain: mainEl ? mainEl.contains(target) : false,
             };
           }
-          // Skip link's href points to a missing id — link is definitively
-          // broken. Do NOT fall through to the <main> fallback; that would
-          // mask the broken-link issue on pages that happen to have <main>
-          // near the top.
           return { reachable: false, selector: null, isInMain: false };
         }
 
-        // No href (skip-link detected by text/tagname, e.g. custom elements).
-        // Fall back to checking whether main content is now visible near
-        // the top — suggests the skip link scrolled to it.
         if (mainEl) {
           const rect = mainEl.getBoundingClientRect();
           return {
@@ -564,13 +711,8 @@ export function analyzeFocusOrder(stops: TabStop[]): FocusOrderResult {
 /**
  * M1-05: Focus Not Obscured Detection
  *
- * Tabs through the page using real Tab presses (matching actual keyboard
- * navigation) and checks at each stop whether the focused element is
- * obscured by fixed/sticky elements. This avoids false positives from
- * page.focus() which doesn't trigger blur/close events on previous elements.
- *
- * When an obscured element is detected, captures a full viewport
- * screenshot showing the element hidden behind the overlay.
+ * Tabs through the page using real Tab presses and checks at each stop
+ * whether the focused element is obscured by fixed/sticky elements.
  */
 export async function detectObscured(
   page: Page,
@@ -596,18 +738,12 @@ export async function detectObscured(
     await page.waitForTimeout(50);
 
     // Check what element is currently focused
-    const currentSelector = await page.evaluate(() => {
-      const el = document.activeElement;
-      if (!el || el === document.body || el === document.documentElement) return null;
-      return (window as any).__getSelector(el);
-    });
+    const currentSelector = await getActiveSelector(page);
 
     if (!currentSelector) continue;
 
     // Find which stop this corresponds to
-    // We advance through stops in order, skipping any we miss
     while (stopIdx < stops.length && stopSelectors[stopIdx] !== currentSelector) {
-      // This stop was skipped (maybe not focusable this time around)
       results.set(stops[stopIdx].index, {
         fullyObscured: false,
         partiallyObscured: false,

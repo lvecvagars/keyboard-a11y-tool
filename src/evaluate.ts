@@ -157,19 +157,23 @@ export async function runEvaluation(
     // ============================================================
     // MODULE 1: Focus Traversal & Order Analysis
     // ============================================================
-    // Technical progress lines with check IDs stay in English.
     onProgress("M1-01: Recording forward tab sequence...");
-    const forwardStops = await recordTabStops(page, "forward");
+    const { stops: forwardStops, inlineTraps: forwardInlineTraps } =
+      await recordTabStops(page, "forward");
     const uniqueStops = deduplicateStops(forwardStops);
     onProgress(`M1-01: ${forwardStops.length} tab stops (${uniqueStops.length} unique)`);
 
+    if (forwardInlineTraps.length > 0) {
+      onProgress(`M1-02: ${forwardInlineTraps.length} trap(s) detected during traversal (early exit)`);
+    }
+
     onProgress("M1-01: Recording backward tab sequence...");
-    const backwardStops = await recordTabStops(page, "backward");
+    const { stops: backwardStops } = await recordTabStops(page, "backward");
     const uniqueBackward = deduplicateStops(backwardStops);
     onProgress(`M1-01: Backward pass — ${uniqueBackward.length} unique stops`);
 
     onProgress("M1-02: Checking for keyboard traps...");
-    const traps = await detectTraps(page, forwardStops);
+    const traps = await detectTraps(page, forwardStops, forwardInlineTraps);
     onProgress(
       traps.length === 0
         ? "M1-02: No keyboard traps detected"

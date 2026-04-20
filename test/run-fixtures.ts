@@ -49,6 +49,16 @@ interface FixtureSpec {
 }
 
 const FIXTURES: FixtureSpec[] = [
+  // ---- Baseline ----
+  {
+    file: "m0-clean-page.html",
+    description: "Fully accessible page — should produce zero issues",
+    expect: {
+      maxCritical: 0,
+      maxTotal: 0,
+    },
+  },
+
   // ---- Module 1 ----
   {
     file: "m1-01-basic-tabs.html",
