@@ -14,6 +14,7 @@
 
 import * as fs from "fs"
 import { launchAndNavigate } from "./utils/browser";
+import { dismissConsentModal } from "./utils/consent";
 import {
   injectHelpers,
   recordTabStops,
@@ -140,6 +141,17 @@ export async function runEvaluation(
 
   try {
     await injectHelpers(page);
+
+    // ---- Dismiss consent modals ----
+    // Many sites show cookie/GDPR consent modals that block keyboard
+    // access to the underlying page. Try to dismiss them before
+    // starting the evaluation so we test the actual site content.
+    const consentResult = await dismissConsentModal(page);
+    if (consentResult) {
+      onProgress(`Consent: ${consentResult}`);
+    } else {
+      onProgress("Consent: no modal detected");
+    }
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const outputDir = path.join("output", `run-${timestamp}`);
