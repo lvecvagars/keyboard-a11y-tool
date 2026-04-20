@@ -7,7 +7,8 @@
     "start": "npx ts-node src/server.ts",
     "cli": "npx ts-node src/index.ts",
     "test:fixtures": "npx ts-node test/run-fixtures.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "batch": "npx ts-node src/batch.ts"
   },
   "repository": {
     "type": "git",

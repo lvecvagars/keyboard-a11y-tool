@@ -1,0 +1,18 @@
+# Batch evaluation URL list for keyboard-a11y-tool
+# One URL per line. Lines starting with # are skipped.
+
+# ---- Latvian public sector ----
+# Relevant for thesis context (VARAM guidelines)
+https://www.latvija.lv
+
+# ---- Known good accessibility ----
+# These sites invest heavily in a11y — useful as positive controls
+https://www.gov.uk
+
+# ---- Popular Latvian sites ----
+# High-traffic, representative of what local users encounter
+https://www.delfi.lv
+
+# ---- Global sites with complex UI ----
+# SPAs, heavy JS, overlays — stress-tests the tool
+https://www.github.com
