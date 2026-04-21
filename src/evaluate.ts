@@ -275,7 +275,16 @@ export async function runEvaluation(
         forwardStops, uniqueStops, backwardStops, uniqueBackward,
         traps, focusOrder, skipLink, obscured, uniqueStops
       ),
-      ...generateM2Issues(indicatorResults, outlineOverrides),
+      ...generateM2Issues(indicatorResults, outlineOverrides, (() => {
+        const set = new Set<string>();
+        for (const [idx, result] of obscured) {
+          if (result.fullyObscured) {
+            const stop = uniqueStops.find(s => s.index === idx);
+            if (stop) set.add(stop.selector);
+          }
+        }
+        return set;
+      })()),
       ...generateM3Issues(
         m3Results.coverageGap,
         m3Results.nonSemanticControls,

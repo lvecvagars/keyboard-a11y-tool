@@ -161,7 +161,8 @@ export function generateM1Issues(
  */
 export function generateM2Issues(
   indicatorResults: IndicatorAnalysis[],
-  outlineOverrides: OutlineOverrideRule[]
+  outlineOverrides: OutlineOverrideRule[],
+  fullyObscuredSelectors: Set<string> = new Set()
 ): ReportIssue[] {
   const issues: ReportIssue[] = [];
   const t = lv.issues;
@@ -180,6 +181,12 @@ export function generateM2Issues(
   }
 
   for (const r of indicatorResults) {
+    // Skip per-element M2 issues for elements that M1-05 flagged as
+    // fully obscured — the focus indicator can't be measured when the
+    // element is completely hidden behind a fixed/sticky overlay, so
+    // any M2 finding would be a symptom of the obscuring, not an
+    // independent focus indicator problem.
+    if (fullyObscuredSelectors.has(r.selector)) continue;
     const levelLv = lv.scoreLevel[r.score.level];
     const scoreTag = ` (vērtējums: ${r.score.score}/100 — ${levelLv})`;
 
