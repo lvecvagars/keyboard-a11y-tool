@@ -226,7 +226,17 @@ export function generateM2Issues(
       });
     }
 
-    if (r.area.areaRatio < 1) {
+    // Only report M2-04 (area too small) when the area shortfall is
+    // independent of a contrast failure. When qualifying pixels is 0
+    // and M2-03 already fired, the area failure is a mathematical
+    // consequence of low contrast — the indicator may be physically
+    // large but no pixels pass the 3:1 threshold to count as area.
+    // Reporting both would confuse developers with "insufficient area"
+    // when the fix is purely about contrast.
+    const contrastAlreadyFlagged = r.contrast.medianContrast < 3;
+    const areaFailedDueToContrast = r.area.qualifyingPixelCount === 0 && contrastAlreadyFlagged;
+
+    if (r.area.areaRatio < 1 && !areaFailedDueToContrast) {
       issues.push({
         checkId: "M2-04",
         wcagCriterion: "2.4.13",
