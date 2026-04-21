@@ -233,7 +233,21 @@ class InlineTrapDetector {
 
     const unique = new Set(this.recent);
     if (unique.size < TRAP_UNIQUE_THRESHOLD) {
-      return Array.from(unique).sort();
+      // Filter out elements that appear only once — they are entry
+      // points into the trap, not part of the repeating cycle itself.
+      const counts = new Map<string, number>();
+      for (const sel of this.recent) {
+        counts.set(sel, (counts.get(sel) || 0) + 1);
+      }
+      const repeating = Array.from(counts.entries())
+        .filter(([, count]) => count > 1)
+        .map(([sel]) => sel)
+        .sort();
+
+      // Need at least 2 repeating elements to form a cycle
+      if (repeating.length >= 2) {
+        return repeating;
+      }
     }
 
     return null;
