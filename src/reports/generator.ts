@@ -263,7 +263,16 @@ export function generateM3Issues(
   const issues: ReportIssue[] = [];
   const t = lv.issues;
 
+  // Build a set of selectors already covered by M3-02 so we can
+  // suppress redundant M3-01 findings for the same elements.
+  // M3-02 is more specific and actionable than M3-01 — if we know
+  // a div is a non-semantic control missing tabindex/role/key handler,
+  // we already know it's keyboard-unreachable.
+  const m302Selectors = new Set(nonSemanticControls.map(c => c.selector));
+
   for (const el of coverageGap.unreachableElements) {
+    if (m302Selectors.has(el.selector)) continue;
+
     const signals: string[] = [];
     if (el.hasClickHandler) signals.push("click handler");
     if (el.hasCursorPointer) signals.push("cursor:pointer");

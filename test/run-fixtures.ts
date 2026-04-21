@@ -149,7 +149,10 @@ const FIXTURES: FixtureSpec[] = [
     file: "m3-01-clickable-div-unreachable.html",
     description: "Div with role=button and click handler but no tabindex (keyboard-unreachable)",
     expect: {
-      checks: { "M3-01": 1 },
+      // M3-02 subsumes M3-01 for non-semantic elements: it reports
+      // the same problem with more actionable detail (which specific
+      // attributes are missing). M3-01 is suppressed to avoid noise.
+      checks: { "M3-02": 1 },
     },
   },
   {
