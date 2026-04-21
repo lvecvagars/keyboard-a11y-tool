@@ -509,13 +509,23 @@ export async function verifySkipLink(
       const el = document.querySelector(selector);
       if (!el) return null;
 
-      // Check for an anchor with an in-page href
+      // Check for an anchor with an in-page href AND skip-related text.
+      // Requiring both prevents false positives on regular in-page
+      // anchors like <a href="#top">Reference link</a>.
       const anchor = el.tagName === "A" ? el : el.querySelector("a");
       if (anchor) {
         const href = anchor.getAttribute("href");
         if (href && href.startsWith("#") && href.length > 1) {
           const text = (anchor.textContent || "").toLowerCase().trim();
-          return { href, text, selector };
+          const isSkipText =
+            text.includes("skip") ||
+            text.includes("main content") ||
+            text.includes("jump to") ||
+            text.includes("pāriet uz") ||
+            text.includes("pārlēkt");
+          if (isSkipText) {
+            return { href, text, selector };
+          }
         }
       }
 
