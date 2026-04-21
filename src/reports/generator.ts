@@ -236,7 +236,11 @@ export function generateM2Issues(
     const contrastAlreadyFlagged = r.contrast.medianContrast < 3;
     const areaFailedDueToContrast = r.area.qualifyingPixelCount === 0 && contrastAlreadyFlagged;
 
-    if (r.area.areaRatio < 1 && !areaFailedDueToContrast) {
+    // Use 0.95 threshold instead of 1.0 to account for sub-pixel
+    // rendering noise, anti-aliasing artifacts, and rounding in
+    // pixel-based area measurement. An indicator at 0.99 is
+    // effectively meeting the requirement.
+    if (r.area.areaRatio < 0.95 && !areaFailedDueToContrast) {
       issues.push({
         checkId: "M2-04",
         wcagCriterion: "2.4.13",
