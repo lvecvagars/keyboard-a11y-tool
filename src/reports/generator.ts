@@ -262,7 +262,8 @@ export function generateM2Issues(
 export function generateM3Issues(
   coverageGap: CoverageGap,
   nonSemanticControls: NonSemanticControl[],
-  scrollableRegions: ScrollableRegion[]
+  scrollableRegions: ScrollableRegion[],
+  reachableSelectors: Set<string> = new Set()
 ): ReportIssue[] {
   const issues: ReportIssue[] = [];
   const t = lv.issues;
@@ -311,6 +312,12 @@ export function generateM3Issues(
 
   for (const region of scrollableRegions) {
     if (!region.isFocusable && !region.hasFocusableChild) {
+      // Skip if the browser made this region focusable automatically —
+      // M1's real keyboard traversal is the ground truth. If the element
+      // received focus during Tab traversal, it's reachable regardless
+      // of whether it has an explicit tabindex attribute.
+      if (reachableSelectors.has(region.selector)) continue;
+
       issues.push({
         checkId: "M3-03",
         wcagCriterion: "2.1.1",

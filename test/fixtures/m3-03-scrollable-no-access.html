@@ -45,7 +45,12 @@
 
   <p>The box below scrolls, but has no tabindex and contains no focusable children:</p>
 
-  <div class="scroll-box">
+  <div class="scroll-box" tabindex="-1">
+  <!-- tabindex="-1" overrides the browser's automatic focusability
+       for scrollable containers, making this truly keyboard-
+       inaccessible. Without this, Chromium/Firefox would auto-focus
+       the container, causing M1 to record it as a tab stop and
+       M3-03 to skip it as "already reachable". -->
     <p>Paragraph one. Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
     <p>Paragraph two. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
     <p>Paragraph three. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.</p>

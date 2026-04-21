@@ -288,7 +288,8 @@ export async function runEvaluation(
       ...generateM3Issues(
         m3Results.coverageGap,
         m3Results.nonSemanticControls,
-        m3Results.scrollableRegions
+        m3Results.scrollableRegions,
+        new Set(uniqueStops.map(s => s.selector))
       ),
     ];
 
