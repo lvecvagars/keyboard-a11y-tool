@@ -47,7 +47,11 @@ export function generateM1Issues(
   const issues: ReportIssue[] = [];
   const t = lv.issues;
 
-  if (uniqueStops.length !== uniqueBackward.length) {
+  // Only report traversal mismatch when no confirmed trap exists —
+  // a trap inherently causes forward/backward mismatch, so reporting
+  // both would be redundant noise in the report.
+  const hasConfirmedTrap = traps.some(t => t.isTrap);
+  if (uniqueStops.length !== uniqueBackward.length && !hasConfirmedTrap) {
     issues.push({
       checkId: "M1-01",
       wcagCriterion: "2.4.3",
