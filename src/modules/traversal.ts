@@ -645,7 +645,7 @@ export async function verifySkipLink(
     return {
       exists: true,
       targetReachable: targetInfo.reachable,
-      targetSelector: targetInfo.selector,
+      targetSelector: targetInfo.selector || skipInfo.href,
     };
   }
 
