@@ -1,17 +1,7 @@
 <!--
-  FIXTURE: M1-03 focus order vs visual layout (reordered grid)
-
-  Eight links laid out in a 2×4 CSS grid. The DOM order is 1, 2, 3,
-  4, 5, 6, 7, 8 but `order` properties visually reorder them into
-  8, 7, 6, 5, 4, 3, 2, 1. When the user Tabs, the focus jumps around
-  the grid in a way that disagrees with the visual reading order
-  (top-to-bottom, left-to-right), producing a low Spearman rank
-  correlation between tab order and visual order.
-
-  Expected: ≥1 M1-03 warning (correlation score < 0.7).
-
-  The grid is big enough that the correlation penalty is large; a
-  smaller disagreement might pass the 0.7 threshold.
+  CSS grid with `order` properties that visually reverse DOM order.
+  Tab sequence follows DOM (1→8) but visual layout is reversed (8→1),
+  producing low Spearman correlation. Expects ≥1 M1-03 warning.
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -39,7 +29,6 @@
       border-radius: 4px;
     }
 
-    /* Visually reverse the DOM order */
     .i1 { order: 8; }
     .i2 { order: 7; }
     .i3 { order: 6; }

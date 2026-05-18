@@ -1,24 +1,4 @@
-<!--
-  FIXTURE: M2-04 focus indicator too small
-
-  The button has a visible, high-contrast focus indicator (M2-01 and
-  M2-03 both pass) but it's only a 1px outline — below the WCAG 2.4.13
-  minimum area requirement of a 2px perimeter.
-
-  For a typical button (~120×32px), the minimum required area per the
-  spec formula is:
-    2 * (120 + 32) * 2 = 608 qualifying CSS pixels
-  A 1px perimeter produces only:
-    2 * (120 + 32) * 1 = 304 qualifying CSS pixels
-  That's roughly half the minimum — comfortably below the threshold
-  and should produce a reliable M2-04 signal regardless of exact
-  button size.
-
-  Reference link uses a 3px outline that clearly meets the area
-  requirement.
-
-  Expected: ≥1 M2-04 issue.
--->
+<!-- High-contrast but only 1px outline — below WCAG 2.4.13 area minimum. Expects ≥1 M2-04. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -27,7 +7,6 @@
   <style>
     body { font-family: sans-serif; padding: 24px; }
 
-    /* Reference link — comfortably large focus indicator */
     a:focus {
       outline: 3px solid #2563eb;
       outline-offset: 2px;
@@ -42,7 +21,6 @@
       outline: none;
     }
 
-    /* High-contrast color but only 1px thick — below minimum area. */
     button.thin-outline:focus {
       outline: 1px solid #2563eb;
       outline-offset: 0;

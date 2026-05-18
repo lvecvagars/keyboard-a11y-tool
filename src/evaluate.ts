@@ -1,16 +1,5 @@
-/**
- * Core evaluation logic extracted from index.ts.
- *
- * This module runs the full M1 → M2 → M3 pipeline and emits progress
- * events via a callback. Both the CLI (index.ts) and the web server
- * (server.ts) use this same function.
- *
- * Progress messages come in two kinds:
- *   - User-facing prose (in Latvian, via lv.progress.*) for things
- *     that appear in the frontend log a demo viewer would read.
- *   - Technical check-ID lines (kept in English) — they stream to the
- *     same log but read better with check IDs and raw numbers intact.
- */
+// Core evaluation pipeline: M1 → M2 → M3 → report generation.
+// Used by both CLI (index.ts) and web server (server.ts).
 
 import * as fs from "fs"
 import { launchAndNavigate } from "./utils/browser";
@@ -41,9 +30,6 @@ import { TabStop, ReportIssue } from "./types";
 import { lv } from "./i18n/lv";
 import * as path from "path";
 
-/**
- * Deduplicate tab stops by selector, keeping the first occurrence.
- */
 function deduplicateStops(stops: TabStop[]): TabStop[] {
   const seen = new Set<string>();
   const unique: TabStop[] = [];
@@ -56,15 +42,8 @@ function deduplicateStops(stops: TabStop[]): TabStop[] {
   return unique;
 }
 
-/**
- * Progress callback signature.
- * The server will forward these messages to the browser via SSE.
- */
 export type ProgressCallback = (message: string) => void;
 
-/**
- * Result of a full evaluation run.
- */
 export interface EvaluationResult {
   report: ReportData;
   outputDir: string;
@@ -72,25 +51,18 @@ export interface EvaluationResult {
   htmlPath: string;
 }
 
-/**
- * Normalize a URL: prepend https:// if no protocol is given,
- * and do a basic format check.
- */
 function normalizeUrl(raw: string): string {
   let url = raw.trim();
   if (!url) throw new Error(lv.errors.emptyUrl);
 
-  // Local file path → file:// URL
   if (url.startsWith("/") || url.startsWith("./") || url.startsWith("../") || /^[a-zA-Z]:\\/.test(url) || url.endsWith(".html") || url.endsWith(".htm")) {
     const absolutePath = require("path").resolve(url);
     url = "file://" + absolutePath;
   }
-  // Prepend https:// if no protocol
   else if (!/^https?:\/\//i.test(url) && !url.startsWith("file://")) {
     url = "https://" + url;
   }
 
-  // Basic validity check
   try {
     new URL(url);
   } catch {
@@ -100,13 +72,6 @@ function normalizeUrl(raw: string): string {
   return url;
 }
 
-/**
- * Run the full keyboard accessibility evaluation on a URL.
- *
- * @param url        - The page to evaluate
- * @param onProgress - Called with human-readable status messages during the run
- * @returns The completed report data and file paths
- */
 export async function runEvaluation(
   rawUrl: string,
   onProgress: ProgressCallback = () => {}
@@ -121,7 +86,6 @@ export async function runEvaluation(
     browserContext = await launchAndNavigate(url);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    // Translate common Playwright navigation errors into clear messages
     if (msg.includes("ERR_NAME_NOT_RESOLVED") || msg.includes("getaddrinfo")) {
       throw new Error(lv.errors.nameNotResolved(url));
     }
@@ -142,12 +106,9 @@ export async function runEvaluation(
   try {
     await injectHelpers(page);
 
-    // ---- Dismiss consent modals ----
     const consentResult = await dismissConsentModal(page);
     if (consentResult) {
       onProgress(`Consent: ${consentResult}`);
-      // Re-inject helpers — clicking the consent button may have
-      // triggered a page reload or navigation that wiped them out.
       await injectHelpers(page);
     } else {
       onProgress("Consent: no modal detected");
@@ -157,7 +118,6 @@ export async function runEvaluation(
     const outputDir = path.join("output", `run-${timestamp}`);
     fs.mkdirSync(outputDir, { recursive: true });
 
-    // Capture page screenshot before any interaction
     const pageScreenshotPath = path.join(outputDir, "page-screenshot.png");
     try {
       await page.screenshot({ path: pageScreenshotPath, type: "png" });
@@ -167,7 +127,7 @@ export async function runEvaluation(
     }
 
     // ============================================================
-    // MODULE 1: Focus Traversal & Order Analysis
+    // MODULE 1
     // ============================================================
     onProgress("M1-01: Recording forward tab sequence...");
     const { stops: forwardStops, inlineTraps: forwardInlineTraps } =
@@ -220,7 +180,7 @@ export async function runEvaluation(
     onProgress(`M1-05: ${obscuredCount} fully obscured, ${partialCount} partially obscured`);
 
     // ============================================================
-    // MODULE 2: Focus Indicator Visibility Analysis
+    // MODULE 2
     // ============================================================
     onProgress("M2-02b: Scanning stylesheets for outline removal...");
     const outlineOverrides = await scanStylesheetsForOutlineRemoval(page);
@@ -248,7 +208,7 @@ export async function runEvaluation(
     onProgress(`M2-05: Average visibility score ${avgScore}/100`);
 
     // ============================================================
-    // MODULE 3: Interactive Element Coverage
+    // MODULE 3
     // ============================================================
     onProgress("M3: Analyzing interactive element coverage...");
     const m2ReachableSelectors = indicatorResults.map((r) => r.selector);
@@ -266,7 +226,7 @@ export async function runEvaluation(
     onProgress(`M3-03: ${m3Results.scrollableRegions.filter(r => !r.isFocusable && !r.hasFocusableChild).length} inaccessible scrollable region(s)`);
 
     // ============================================================
-    // REPORT GENERATION
+    // REPORT
     // ============================================================
     onProgress(lv.progress.generatingReport);
 

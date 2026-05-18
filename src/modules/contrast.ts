@@ -1,33 +1,17 @@
-/**
- * M2-03: Focus Indicator Contrast Ratio
- * M2-04: Focus Indicator Area Measurement
- *
- * Shared WCAG luminance math used by both checks.
- *
- * WCAG relative luminance formula:
- *   L = 0.2126 * R' + 0.7152 * G' + 0.0722 * B'
- *   where R' = (R/255 <= 0.04045) ? R/255/12.92 : ((R/255 + 0.055)/1.055)^2.4
- *
- * Contrast ratio:
- *   (L1 + 0.05) / (L2 + 0.05)  where L1 >= L2
- */
+// M2-03 + M2-04: Contrast and area calculations for focus indicators
 
 import { PNG } from "pngjs";
 import { IndicatorContrast, IndicatorArea } from "../types";
 
-/**
- * Convert an 8-bit sRGB channel value (0–255) to linear light.
- * This is the inverse of the sRGB transfer function.
- */
+// WCAG relative luminance:
+//   L = 0.2126 * R' + 0.7152 * G' + 0.0722 * B'
+// where R' = (R/255 <= 0.04045) ? R/255/12.92 : ((R/255 + 0.055)/1.055)^2.4
+
 function sRGBtoLinear(channel: number): number {
   const s = channel / 255;
   return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
 }
 
-/**
- * Compute WCAG relative luminance for an RGB color.
- * Returns a value between 0 (black) and 1 (white).
- */
 function relativeLuminance(r: number, g: number, b: number): number {
   return (
     0.2126 * sRGBtoLinear(r) +
@@ -36,46 +20,24 @@ function relativeLuminance(r: number, g: number, b: number): number {
   );
 }
 
-/**
- * Compute the WCAG contrast ratio between two luminance values.
- * Always returns a value >= 1.0 (identical colors = 1.0, black vs white = 21.0).
- */
 function contrastRatio(l1: number, l2: number): number {
   const lighter = Math.max(l1, l2);
   const darker = Math.min(l1, l2);
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-/**
- * Minimum per-channel difference (in any of R, G, B) to consider a pixel
- * as "changed" between focused and unfocused states. This filters out
- * sub-pixel rendering noise and anti-aliasing artifacts that don't
- * represent the actual focus indicator.
- *
- * A threshold of 10 means a pixel must differ by at least 10/255 (~4%)
- * in at least one channel. This is intentionally low — we want to catch
- * subtle indicators — but high enough to skip anti-aliasing noise.
- */
+// Per-channel threshold to filter out sub-pixel rendering noise.
+// 10/255 (~4%) is low enough to catch subtle indicators but high
+// enough to skip anti-aliasing artifacts.
 const PIXEL_CHANGE_THRESHOLD = 10;
 
-/** Contrast threshold per WCAG 2.4.13 for qualifying indicator pixels */
-const CONTRAST_THRESHOLD = 3;
+const CONTRAST_THRESHOLD = 3; // WCAG 2.4.13
 
-/**
- * Per-pixel analysis result: whether the pixel changed, and if so,
- * its contrast ratio and position. Used by both M2-03 and M2-04.
- */
 interface PixelAnalysis {
-  /** Contrast ratios of all changed pixels (for M2-03 median/min) */
   contrastValues: number[];
-  /** Positions of pixels that are both changed AND meet 3:1 (for M2-04 area/perimeter) */
   qualifyingPixels: { x: number; y: number }[];
 }
 
-/**
- * Analyze every pixel in the focused/unfocused pair.
- * Shared between M2-03 and M2-04 so we only loop once.
- */
 function analyzePixels(focusedPng: PNG, unfocusedPng: PNG): PixelAnalysis {
   const { width, height } = focusedPng;
   const contrastValues: number[] = [];
@@ -118,14 +80,6 @@ function analyzePixels(focusedPng: PNG, unfocusedPng: PNG): PixelAnalysis {
   return { contrastValues, qualifyingPixels };
 }
 
-/**
- * M2-03: Compute contrast metrics from the pixel analysis.
- *
- * @param focusedPng        - Screenshot with focus indicator visible
- * @param unfocusedPng      - Screenshot without focus indicator
- * @param changedPixelCount - From pixelmatch (quick zero-check only)
- * @returns IndicatorContrast with median, min, and percentage meeting 3:1
- */
 export function computeContrastFromDiff(
   focusedPng: PNG,
   unfocusedPng: PNG,
@@ -140,17 +94,7 @@ export function computeContrastFromDiff(
 }
 
 /**
- * M2-03 + M2-04: Compute both contrast and area metrics in a single pass.
- *
- * This is the preferred entry point — it avoids looping through pixels twice.
- *
- * @param focusedPng        - Screenshot with focus indicator visible
- * @param unfocusedPng      - Screenshot without focus indicator
- * @param changedPixelCount - From pixelmatch (quick zero-check only)
- * @param elementWidth      - Element's CSS width in device pixels
- * @param elementHeight     - Element's CSS height in device pixels
- * @param padding           - Screenshot padding in CSS pixels (same as SCREENSHOT_PADDING)
- * @param devicePixelRatio  - Page's devicePixelRatio for CSS-to-device-pixel conversion
+ * Compute both contrast and area in a single pixel pass (avoids looping twice).
  */
 export function computeContrastAndArea(
   focusedPng: PNG,
@@ -189,9 +133,6 @@ export function computeContrastAndArea(
   return { contrast, area };
 }
 
-/**
- * Compute IndicatorContrast from a sorted list of contrast values.
- */
 function contrastFromValues(contrastValues: number[]): IndicatorContrast {
   if (contrastValues.length === 0) {
     return { medianContrast: 1, minContrast: 1, percentMeeting3to1: 0 };
@@ -216,15 +157,8 @@ function contrastFromValues(contrastValues: number[]): IndicatorContrast {
   };
 }
 
-/**
- * WCAG 2.4.13 minimum required area: a 2px perimeter around the element.
- *
- * Formula: 2 × (width + height) × 2  (in CSS pixels)
- * We convert to device pixels since our screenshots are in device pixels.
- *
- * The formula represents: perimeter length × 2px thickness.
- * For a 100×50 element: 2 × (100+50) × 2 = 600 CSS pixels.
- */
+// WCAG 2.4.13 minimum area: 2px perimeter around the element.
+// Formula: 2 * (W + H) * 2 in CSS pixels, then scaled to device pixels.
 function computeMinimumArea(
   elementWidth: number,
   elementHeight: number,
@@ -234,14 +168,8 @@ function computeMinimumArea(
   return Math.round(cssArea * devicePixelRatio * devicePixelRatio);
 }
 
-/**
- * M2-04: Compute area and perimeter coverage from qualifying pixels.
- *
- * Perimeter coverage measures what fraction of the element's perimeter
- * has qualifying pixels nearby. We divide the perimeter into segments
- * and check if each segment has at least one qualifying pixel within
- * a small distance.
- */
+// Perimeter coverage: divide the element's perimeter into ~4px segments,
+// check each for nearby qualifying pixels within a tolerance band.
 function computeArea(
   qualifyingPixels: { x: number; y: number }[],
   elementWidth: number,
@@ -257,26 +185,18 @@ function computeArea(
     ? Math.round((qualifyingPixelCount / minimumRequiredArea) * 100) / 100
     : 0;
 
-  // Compute perimeter coverage:
-  // The element sits inside the screenshot at an offset of `padding` pixels
-  // (in CSS pixels, scaled by devicePixelRatio for device pixels).
   const padDev = Math.round(padding * devicePixelRatio);
   const elW = Math.round(elementWidth * devicePixelRatio);
   const elH = Math.round(elementHeight * devicePixelRatio);
 
-  // Element bounds within the screenshot image
   const elLeft = padDev;
   const elTop = padDev;
   const elRight = elLeft + elW;
   const elBottom = elTop + elH;
 
-  // Divide the perimeter into segments of ~4 device pixels each.
-  // For each segment, check if any qualifying pixel is within
-  // a tolerance band around the element's edge.
   const segmentSize = 4;
-  const tolerance = Math.round(6 * devicePixelRatio); // how far from the edge a pixel can be
+  const tolerance = Math.round(6 * devicePixelRatio);
 
-  // Generate perimeter sample points (midpoint of each segment)
   const perimeterPoints: { x: number; y: number }[] = [];
 
   // Top edge
@@ -300,8 +220,6 @@ function computeArea(
     return { qualifyingPixelCount, minimumRequiredArea, areaRatio, perimeterCoverage: 0 };
   }
 
-  // For each perimeter point, check if any qualifying pixel is nearby
-  // Build a set of qualifying pixel positions for fast lookup
   const pixelSet = new Set<string>();
   for (const p of qualifyingPixels) {
     pixelSet.add(`${p.x},${p.y}`);
@@ -310,7 +228,6 @@ function computeArea(
   let coveredSegments = 0;
   for (const point of perimeterPoints) {
     let found = false;
-    // Check a small area around this perimeter point
     for (let dy = -tolerance; dy <= tolerance && !found; dy++) {
       for (let dx = -tolerance; dx <= tolerance && !found; dx++) {
         const px = point.x + dx;

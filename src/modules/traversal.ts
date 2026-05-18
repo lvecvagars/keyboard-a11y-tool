@@ -12,12 +12,10 @@ import {
   ObscuredResult,
 } from "../types";
 
-/** Maximum tab presses before we give up (prevents infinite loops) */
 const MAX_TAB_PRESSES = 500;
 
 type Direction = "forward" | "backward";
 
-/** Keys to try when attempting to escape a suspected trap */
 const ESCAPE_KEYS = [
   "Escape",
   "Shift+Tab",
@@ -27,45 +25,32 @@ const ESCAPE_KEYS = [
   "ArrowLeft",
 ];
 
-/**
- * How many times the same small set must repeat to suspect a trap.
- * With TRAP_UNIQUE_THRESHOLD=4 unique elements and TRAP_CYCLE_REPEATS=3,
- * we need to see the same ≤3 elements cycle 3 times (i.e., 9–12 consecutive
- * stops with no new element appearing).
- */
+// Inline trap detection thresholds:
+// If fewer than 4 unique elements repeat for 3 full cycles,
+// we suspect a trap. That means 9-12 consecutive stops with
+// no new element appearing.
 const TRAP_UNIQUE_THRESHOLD = 4;
 const TRAP_CYCLE_REPEATS = 3;
-
-/**
- * Once a trap is suspected during traversal, how many additional presses
- * to confirm it before breaking out. Keeps the traversal from spinning
- * for hundreds of presses inside a trap.
- */
 const TRAP_CONFIRM_EXTRA_PRESSES = 6;
 
 /**
- * Expose the selector builder inside the browser context.
- * Call this once after navigation, before running any checks.
+ * Inject the selector builder into the browser context.
+ * Must be called once after navigation, before running any checks.
  *
- * The selector strategy prioritizes stability across DOM re-renders:
- *   1. #id (most stable)
- *   2. Unique attribute combos: tag + href, tag + aria-label, etc.
- *   3. nth-of-type path fallback (least stable on SPAs)
+ * Selector strategy: #id → unique attribute combo → nth-of-type path fallback
  */
 export async function injectHelpers(page: Page): Promise<void> {
   try {
     await page.exposeFunction("__buildSelector", async () => "");
   } catch {
-    // Already registered from a previous call — safe to ignore
+    // Already registered from a previous call
   }
   await page.evaluate(() => {
     (window as any).__getSelector = function (el: Element): string {
-      // Strategy 1: ID
       if (el.id) {
         return "#" + CSS.escape(el.id);
       }
 
-      // Strategy 2: Unique attribute-based selector
       const tag = el.tagName.toLowerCase();
       const attrs: [string, string | null][] = [
         ["href", el.getAttribute("href")],
@@ -85,12 +70,10 @@ export async function injectHelpers(page: Page): Promise<void> {
               return candidate;
             }
           } catch {
-            // Selector might still be invalid for exotic attribute values
           }
         }
       }
 
-      // Strategy 2b: Custom elements
       if (tag.includes("-")) {
         const matches = document.querySelectorAll(tag);
         if (matches.length === 1) {
@@ -98,7 +81,7 @@ export async function injectHelpers(page: Page): Promise<void> {
         }
       }
 
-      // Strategy 3: nth-of-type path (fallback)
+      // Fallback: nth-of-type path
       const parts: string[] = [];
       let current: Element | null = el;
       while (current && current !== document.documentElement) {
@@ -124,10 +107,6 @@ export async function injectHelpers(page: Page): Promise<void> {
   });
 }
 
-/**
- * Get the selector of the currently focused element, or null if
- * nothing meaningful is focused.
- */
 async function getActiveSelector(page: Page): Promise<string | null> {
   return page.evaluate(() => {
     const el = document.activeElement;
@@ -138,9 +117,6 @@ async function getActiveSelector(page: Page): Promise<string | null> {
   });
 }
 
-/**
- * Get full info about the currently focused element.
- */
 async function getActiveElementInfo(page: Page, startTime: number): Promise<{
   selector: string;
   tag: string;
@@ -196,45 +172,29 @@ async function getActiveElementInfo(page: Page, startTime: number): Promise<{
 }
 
 // ---- Inline trap detector ----
+// Maintains a sliding window of recent selectors during traversal.
+// When the window contains < TRAP_UNIQUE_THRESHOLD unique elements
+// for TRAP_CYCLE_REPEATS cycles, signals a suspected trap.
 
-/**
- * Lightweight trap detector that runs *during* the tab traversal.
- *
- * It maintains a sliding window of recent selectors. When the window
- * contains fewer than TRAP_UNIQUE_THRESHOLD unique elements for
- * TRAP_CYCLE_REPEATS full cycles, it signals a suspected trap.
- *
- * This lets recordTabStops() break out early instead of pressing Tab
- * 500 times inside a trap.
- */
 class InlineTrapDetector {
   private recent: string[] = [];
   private readonly windowSize: number;
 
   constructor() {
-    // Window = max unique elements × required repeats
     this.windowSize = TRAP_UNIQUE_THRESHOLD * TRAP_CYCLE_REPEATS;
   }
 
-  /**
-   * Feed a new selector. Returns the set of trapped selectors if a
-   * trap is suspected, or null if traversal should continue.
-   */
   push(selector: string): string[] | null {
     this.recent.push(selector);
 
-    // Don't check until we have enough data
     if (this.recent.length < this.windowSize) return null;
 
-    // Only keep the last windowSize entries
     if (this.recent.length > this.windowSize) {
       this.recent.shift();
     }
 
     const unique = new Set(this.recent);
     if (unique.size < TRAP_UNIQUE_THRESHOLD) {
-      // Filter out elements that appear only once — they are entry
-      // points into the trap, not part of the repeating cycle itself.
       const counts = new Map<string, number>();
       for (const sel of this.recent) {
         counts.set(sel, (counts.get(sel) || 0) + 1);
@@ -244,7 +204,6 @@ class InlineTrapDetector {
         .map(([sel]) => sel)
         .sort();
 
-      // Need at least 2 repeating elements to form a cycle
       if (repeating.length >= 2) {
         return repeating;
       }
@@ -253,23 +212,12 @@ class InlineTrapDetector {
     return null;
   }
 
-  /** Reset after breaking out of a trap */
   reset(): void {
     this.recent = [];
   }
 }
 
-/**
- * M1-01: Full Tab Sequence Recording
- *
- * Presses Tab (or Shift+Tab) repeatedly, recording every element that
- * receives focus. Stops when focus cycles back to the first element
- * or the maximum threshold is reached.
- *
- * Integrates inline trap detection: if a trap is suspected during
- * traversal, records it and breaks out early rather than pressing
- * Tab hundreds of times inside the trapped set.
- */
+// M1-01: Tab sequence recording
 export async function recordTabStops(
   page: Page,
   direction: Direction
@@ -311,18 +259,16 @@ export async function recordTabStops(
       timestamp: info.timestamp,
     });
 
-    // ---- Inline trap detection ----
     const trapped = detector.push(info.selector);
     if (!trapped) continue;
 
-    // Suspected trap — confirm with a few more presses
+    // Suspected trap — confirm with extra presses
     let confirmed = true;
     for (let extra = 0; extra < TRAP_CONFIRM_EXTRA_PRESSES; extra++) {
       await page.keyboard.press(key);
       await page.waitForTimeout(50);
       const sel = await getActiveSelector(page);
       if (sel && !trapped.includes(sel)) {
-        // Focus escaped the suspected set — false alarm
         confirmed = false;
         const extraInfo = await getActiveElementInfo(page, startTime);
         if (extraInfo) {
@@ -357,12 +303,8 @@ export async function recordTabStops(
         location: trapped[0],
       });
 
-      if (!escaped) {
-        // Confirmed hard trap — stop traversal
-        break;
-      }
+      if (!escaped) break; // confirmed hard trap
 
-      // Escaped — reset detector and continue
       detector.reset();
       const newSel = await getActiveSelector(page);
       if (newSel) {
@@ -375,16 +317,8 @@ export async function recordTabStops(
   return { stops, inlineTraps };
 }
 
-/**
- * M1-02: Keyboard Trap Detection (post-traversal analysis)
- *
- * Analyzes a recorded tab stop sequence for repeating cycles.
- * This catches traps that the inline detector might miss (e.g.,
- * traps with exactly TRAP_UNIQUE_THRESHOLD elements).
- *
- * The inline detector handles most traps during traversal; this
- * function is a safety net that also handles the backward pass.
- */
+// M1-02: Post-traversal trap detection (safety net for traps the inline
+// detector might miss, e.g. traps with exactly TRAP_UNIQUE_THRESHOLD elements)
 export async function detectTraps(
   page: Page,
   stops: TabStop[],
@@ -396,7 +330,6 @@ export async function detectTraps(
     return traps;
   }
 
-  // Build a set of already-reported trapped element sets for deduplication
   const alreadyReportedSets = new Set(
     traps.map(t => [...t.trappedElements].sort().join("|"))
   );
@@ -430,13 +363,11 @@ export async function detectTraps(
     const trappedSet = Array.from(uniqueSelectors).sort();
     const setKey = trappedSet.join("|");
 
-    // Skip if already reported by inline detector
     if (alreadyReportedSets.has(setKey)) {
       i += requiredLength - 1;
       continue;
     }
 
-    // Remove previous traps that are supersets of this one
     for (let j = traps.length - 1; j >= 0; j--) {
       if (
         isSubsetOf(trappedSet, traps[j].trappedElements) &&
@@ -472,10 +403,6 @@ export async function detectTraps(
   return traps;
 }
 
-/**
- * Navigate focus to one of the trapped elements, then try each
- * escape key and check whether focus moves outside the trapped set.
- */
 async function tryEscape(
   page: Page,
   trappedSelectors: string[]
@@ -504,18 +431,11 @@ async function tryEscape(
   return attempts;
 }
 
-/**
- * M1-04: Skip Link Verification
- *
- * Checks if one of the first few tab stops is a skip link (an anchor
- * pointing to an in-page #id). If found, activates it and verifies
- * that focus actually moves to the target element.
- */
+// M1-04: Skip link verification
 export async function verifySkipLink(
   page: Page,
   stops: TabStop[]
 ): Promise<SkipLinkResult> {
-  // Only check the first 3 tab stops — skip links should be very early
   const candidates = stops.slice(0, 3);
 
   for (const stop of candidates) {
@@ -523,9 +443,8 @@ export async function verifySkipLink(
       const el = document.querySelector(selector);
       if (!el) return null;
 
-      // Check for an anchor with an in-page href AND skip-related text.
-      // Requiring both prevents false positives on regular in-page
-      // anchors like <a href="#top">Reference link</a>.
+      // Check for anchor with in-page href AND skip-related text.
+      // Requiring both prevents false positives on regular anchors.
       const anchor = el.tagName === "A" ? el : el.querySelector("a");
       if (anchor) {
         const href = anchor.getAttribute("href");
@@ -543,7 +462,6 @@ export async function verifySkipLink(
         }
       }
 
-      // Check shadow DOM for anchors
       if (el.shadowRoot) {
         const shadowAnchor = el.shadowRoot.querySelector("a");
         if (shadowAnchor) {
@@ -555,16 +473,11 @@ export async function verifySkipLink(
         }
       }
 
-      // Detect by tag name — custom elements like <skip-to-content>
       const tagName = el.tagName.toLowerCase();
-      if (
-        tagName.includes("skip") ||
-        tagName.includes("skipto")
-      ) {
+      if (tagName.includes("skip") || tagName.includes("skipto")) {
         return { href: null, text: tagName, selector };
       }
 
-      // Check if the element itself has skip-related text
       const elText = (el.textContent || "").toLowerCase().trim();
       const isSkipText =
         elText.includes("skip") ||
@@ -579,8 +492,7 @@ export async function verifySkipLink(
 
     if (!skipInfo) continue;
 
-    // We found something that looks like a skip link.
-    // Now activate it and check where focus goes.
+    // Activate it and check where focus goes
     await page.focus(stop.selector);
     await page.waitForTimeout(50);
     await page.keyboard.press("Enter");
@@ -595,7 +507,6 @@ export async function verifySkipLink(
         try {
           skipEl = document.querySelector(args.skipLinkSelector);
         } catch {
-          // Invalid selector — treat as not matching
         }
 
         const focusIsOnSkipLink =
@@ -656,19 +567,13 @@ export async function verifySkipLink(
   };
 }
 
-/**
- * M1-03: Focus Order vs. Visual Layout Analysis
- *
- * Compares the tab sequence order against the visual reading order
- * derived from element bounding boxes (top-to-bottom, left-to-right).
- */
+// M1-03: Focus order vs visual layout (Spearman rank correlation)
 export function analyzeFocusOrder(stops: TabStop[]): FocusOrderResult {
   if (stops.length < 2) {
     return { correlationScore: 1, violations: [] };
   }
 
-  // Elements within this vertical distance are considered on the same row
-  const ROW_THRESHOLD = 30;
+  const ROW_THRESHOLD = 30; // elements within this vertical distance = same row
 
   const visualOrder = [...stops].sort((a, b) => {
     const ay = a.boundingBox.y;
@@ -679,13 +584,12 @@ export function analyzeFocusOrder(stops: TabStop[]): FocusOrderResult {
     return ay - by;
   });
 
-  // Map each stop to its rank in visual order
   const visualRank = new Map<string, number>();
   visualOrder.forEach((stop, rank) => {
     visualRank.set(stop.selector, rank);
   });
 
-  // Spearman rank correlation: rho = 1 - (6 * sum(d^2)) / (n * (n^2 - 1))
+  // Spearman: rho = 1 - (6 * sum(d^2)) / (n * (n^2 - 1))
   const n = stops.length;
   let sumDSquared = 0;
 
@@ -699,7 +603,6 @@ export function analyzeFocusOrder(stops: TabStop[]): FocusOrderResult {
   const correlationScore =
     n > 1 ? 1 - (6 * sumDSquared) / (n * (n * n - 1)) : 1;
 
-  // Detect individual violations
   const JUMP_THRESHOLD = 200;
   const violations: FocusOrderViolation[] = [];
 
@@ -718,7 +621,7 @@ export function analyzeFocusOrder(stops: TabStop[]): FocusOrderResult {
     }
   }
 
-  // Flag tabindex > 0 as a separate anti-pattern warning
+  // Flag tabindex > 0 as anti-pattern
   for (const stop of stops) {
     if (stop.tabindex !== null && stop.tabindex > 0) {
       violations.push({
@@ -736,12 +639,9 @@ export function analyzeFocusOrder(stops: TabStop[]): FocusOrderResult {
   };
 }
 
-/**
- * M1-05: Focus Not Obscured Detection
- *
- * Tabs through the page using real Tab presses and checks at each stop
- * whether the focused element is obscured by fixed/sticky elements.
- */
+// M1-05: Detect focus obscured by fixed/sticky elements.
+// Tabs through the page with real Tab presses and checks elementFromPoint
+// at 5 points (center + 4 corners) on each focused element.
 export async function detectObscured(
   page: Page,
   stops: TabStop[],
@@ -752,7 +652,6 @@ export async function detectObscured(
   const viewportHeight = 720;
   const viewportWidth = 1280;
 
-  // Reset focus to start of page
   await page.evaluate(() => {
     (document.activeElement as HTMLElement)?.blur();
     document.body.focus();
@@ -765,12 +664,10 @@ export async function detectObscured(
     await page.keyboard.press("Tab");
     await page.waitForTimeout(50);
 
-    // Check what element is currently focused
     const currentSelector = await getActiveSelector(page);
 
     if (!currentSelector) continue;
 
-    // Find which stop this corresponds to
     while (stopIdx < stops.length && stopSelectors[stopIdx] !== currentSelector) {
       results.set(stops[stopIdx].index, {
         fullyObscured: false,
@@ -851,7 +748,6 @@ export async function detectObscured(
       focusRect.x + focusRect.w > 0 &&
       focusRect.x < viewportWidth;
 
-    // Capture viewport screenshot when the element is obscured
     let screenshotPath: string | undefined;
     if (overlapPercent > 0 && outputDir) {
       fs.mkdirSync(outputDir, { recursive: true });
@@ -865,7 +761,6 @@ export async function detectObscured(
         await page.screenshot({ path: filePath, type: "png" });
         screenshotPath = filePath;
       } catch {
-        // Screenshot failed — continue without it
       }
     }
 
@@ -881,7 +776,6 @@ export async function detectObscured(
     stopIdx++;
   }
 
-  // Fill in any remaining stops we didn't reach
   while (stopIdx < stops.length) {
     results.set(stops[stopIdx].index, {
       fullyObscured: false,

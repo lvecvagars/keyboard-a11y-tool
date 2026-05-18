@@ -1,14 +1,3 @@
-/**
- * Report Generator
- *
- * Collects results from all three modules, flattens them into a list of
- * issues with severity and remediation, computes summary statistics,
- * and outputs both JSON and HTML reports.
- *
- * All user-facing strings come from src/i18n/lv.ts — do not hardcode
- * Latvian (or English) strings in this file.
- */
-
 import * as fs from "fs";
 import * as path from "path";
 import {
@@ -30,9 +19,6 @@ import { lv } from "../i18n/lv";
 
 // ---- Issue Generation ----
 
-/**
- * Generate issues from Module 1 results.
- */
 export function generateM1Issues(
   forwardStops: TabStop[],
   uniqueStops: TabStop[],
@@ -156,9 +142,6 @@ export function generateM1Issues(
   return issues;
 }
 
-/**
- * Generate issues from Module 2 results.
- */
 export function generateM2Issues(
   indicatorResults: IndicatorAnalysis[],
   outlineOverrides: OutlineOverrideRule[],
@@ -236,10 +219,8 @@ export function generateM2Issues(
     const contrastAlreadyFlagged = r.contrast.medianContrast < 3;
     const areaFailedDueToContrast = r.area.qualifyingPixelCount === 0 && contrastAlreadyFlagged;
 
-    // Use 0.95 threshold instead of 1.0 to account for sub-pixel
-    // rendering noise, anti-aliasing artifacts, and rounding in
-    // pixel-based area measurement. An indicator at 0.99 is
-    // effectively meeting the requirement.
+    // 0.95 instead of 1.0 to account for sub-pixel rendering noise
+    // and anti-aliasing artifacts in pixel-based area measurement.
     if (r.area.areaRatio < 0.95 && !areaFailedDueToContrast) {
       issues.push({
         checkId: "M2-04",
@@ -256,9 +237,6 @@ export function generateM2Issues(
   return issues;
 }
 
-/**
- * Generate issues from Module 3 results.
- */
 export function generateM3Issues(
   coverageGap: CoverageGap,
   nonSemanticControls: NonSemanticControl[],
@@ -268,11 +246,8 @@ export function generateM3Issues(
   const issues: ReportIssue[] = [];
   const t = lv.issues;
 
-  // Build a set of selectors already covered by M3-02 so we can
-  // suppress redundant M3-01 findings for the same elements.
-  // M3-02 is more specific and actionable than M3-01 — if we know
-  // a div is a non-semantic control missing tabindex/role/key handler,
-  // we already know it's keyboard-unreachable.
+  // M3-02 is more specific than M3-01 for the same element — suppress
+  // redundant M3-01 findings when M3-02 already covers them.
   const m302Selectors = new Set(nonSemanticControls.map(c => c.selector));
 
   for (const el of coverageGap.unreachableElements) {
@@ -296,9 +271,6 @@ export function generateM3Issues(
   }
 
   for (const ctrl of nonSemanticControls) {
-    // Translate the individual issue strings that came from coverage.ts
-    // (those strings were generated in English by the analysis module;
-    // we map them to Latvian here in the report layer).
     const translatedIssues = ctrl.issues.map(translateM302Issue);
     issues.push({
       checkId: "M3-02",
@@ -312,10 +284,8 @@ export function generateM3Issues(
 
   for (const region of scrollableRegions) {
     if (!region.isFocusable && !region.hasFocusableChild) {
-      // Skip if the browser made this region focusable automatically —
-      // M1's real keyboard traversal is the ground truth. If the element
-      // received focus during Tab traversal, it's reachable regardless
-      // of whether it has an explicit tabindex attribute.
+      // If M1's real traversal reached this element, it's keyboard-accessible
+      // regardless of missing tabindex — skip the false positive.
       if (reachableSelectors.has(region.selector)) continue;
 
       issues.push({
@@ -332,11 +302,7 @@ export function generateM3Issues(
   return issues;
 }
 
-/**
- * Translate M3-02 issue strings from English (as produced in coverage.ts)
- * to Latvian. The analysis module stays in English; translation happens
- * at the report layer so the analysis remains language-agnostic.
- */
+// Maps English issue strings from coverage.ts to Latvian for the report.
 function translateM302Issue(issue: string): string {
   const map = lv.issues.m302Issues;
   if (issue.includes("tabindex")) return map.missingTabindex;
@@ -344,10 +310,10 @@ function translateM302Issue(issue: string): string {
   if (issue.includes("keydown") || issue.includes("keypress") || issue.includes("keyboard")) {
     return map.missingKeyHandler;
   }
-  return issue; // fallback — untranslated
+  return issue;
 }
 
-// ---- Summary Computation ----
+// ---- Summary & Report Output ----
 
 function computeSummary(
   issues: ReportIssue[],
@@ -366,8 +332,6 @@ function computeSummary(
     keyboardCoveragePercent: coveragePercent,
   };
 }
-
-// ---- JSON Report ----
 
 export interface ReportData {
   url: string;
@@ -424,13 +388,10 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** Capitalize the first character of a string. Used for legend labels
- *  where the plural severity forms are lowercase by default. */
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-/** Shorten a CSS selector for display — show the meaningful last part */
 function shortenSelector(sel: string): string {
   if (sel === "page") return lv.report.entirePage;
   if (sel.length <= 50) return sel;
@@ -446,7 +407,6 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
   const { summary, issues, url, timestamp, durationMs } = report;
   const duration = (durationMs / 1000).toFixed(1);
 
-  // Group issues by module
   const moduleGroups = new Map<string, ReportIssue[]>();
   for (const issue of issues) {
     const moduleKey = issue.checkId.substring(0, 2);
@@ -455,7 +415,6 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
     moduleGroups.set(moduleKey, list);
   }
 
-  // Module-level stats for summary cards
   const m1Issues = moduleGroups.get("M1") || [];
   const m2Issues = moduleGroups.get("M2") || [];
   const m3Issues = moduleGroups.get("M3") || [];
@@ -472,7 +431,6 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
   const m3Unreachable = m3Issues.filter(i => i.checkId === "M3-01").length;
   const m3NonSemantic = m3Issues.filter(i => i.checkId === "M3-02").length;
 
-  // Score bar color
   const scoreColor =
     summary.averageVisibilityScore >= 80 ? "#059669" :
     summary.averageVisibilityScore >= 50 ? "#d97706" : "#dc2626";
@@ -481,14 +439,12 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
     summary.keyboardCoveragePercent >= 95 ? "#059669" :
     summary.keyboardCoveragePercent >= 80 ? "#d97706" : "#dc2626";
 
-  // Severity bar widths (percentage of total)
   const total = summary.totalIssues || 1;
   const critPct = Math.round((summary.criticalCount / total) * 100);
   const warnPct = Math.round((summary.warningCount / total) * 100);
   const modPct = Math.round((summary.moderateCount / total) * 100);
   const infoPct = Math.round((summary.infoCount / total) * 100);
 
-  // Build issue cards HTML grouped by module
   let issueCardsHtml = "";
 
   for (const [moduleKey, moduleIssues] of moduleGroups) {
@@ -517,7 +473,6 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
   </div>
 `;
 
-    // Sort: critical first, then warning, moderate, info
     const severityWeight: Record<Severity, number> = { critical: 0, warning: 1, moderate: 2, info: 3 };
     const sorted = [...moduleIssues].sort((a, b) => severityWeight[a.severity] - severityWeight[b.severity]);
 
@@ -607,7 +562,6 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
   .report-header .meta a { color: #60a5fa; text-decoration: none; }
   .report-header .meta a:hover { text-decoration: underline; }
 
-  /* Page screenshot */
   .page-screenshot {
     border-bottom: 1px solid #e2e8f0;
   }
@@ -619,7 +573,6 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
 
   .content { padding: 24px 32px; }
 
-  /* ---- Severity bar ---- */
   .severity-bar-section { margin-bottom: 24px; }
   .severity-bar-label {
     font-size: 12px;
@@ -667,7 +620,6 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
     flex-shrink: 0;
   }
 
-  /* ---- Module summary cards ---- */
   .module-summary-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -717,7 +669,6 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
     margin-right: 4px;
   }
 
-  /* Mini bar inside module cards */
   .ms-bar-bg {
     width: 100%;
     height: 6px;
@@ -732,7 +683,6 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
     transition: width 0.4s ease;
   }
 
-  /* Module sections */
   .module-section { margin-bottom: 28px; }
   .module-header {
     display: flex;
@@ -746,7 +696,6 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
   .module-name { font-size: 16px; font-weight: 700; }
   .module-counts { margin-left: auto; font-size: 12px; color: #64748b; }
 
-  /* Issue cards */
   .issue-card {
     background: #fff;
     border: 1px solid #e2e8f0;
@@ -808,7 +757,6 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
     margin-bottom: 8px;
   }
 
-  /* Screenshots */
   .screenshot-row {
     margin: 10px 0;
   }
@@ -851,7 +799,6 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
     border-radius: 6px;
   }
 
-  /* Remediation collapsible */
   .remediation-details {
     margin-top: 4px;
   }
@@ -875,7 +822,6 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
     line-height: 1.6;
   }
 
-  /* Pass message */
   .pass-message {
     padding: 20px 24px;
     background: #ecfdf5;
@@ -887,7 +833,6 @@ export function writeHtmlReport(report: ReportData, outputDir: string, pageScree
     text-align: center;
   }
 
-  /* Footer */
   .report-footer {
     text-align: center;
     padding: 20px;
@@ -922,7 +867,6 @@ ${pageScreenshotPath ? `<div class="page-screenshot">
 
 <div class="content">
 
-<!-- ===== Severity Distribution Bar ===== -->
 <div class="severity-bar-section">
   <div class="severity-bar-label">${escapeHtml(lv.report.issuesFoundLabel(summary.totalIssues))}</div>
   <div class="severity-bar">
@@ -940,9 +884,7 @@ ${pageScreenshotPath ? `<div class="page-screenshot">
   </div>
 </div>
 
-<!-- ===== Module Summary Cards ===== -->
 <div class="module-summary-grid">
-  <!-- Module 1 -->
   <div class="module-summary-card" style="border-top-color:#2563eb">
     <div class="ms-title" style="color:#2563eb">${escapeHtml(lv.report.modules.m1.name)}</div>
     <div class="ms-metric">
@@ -959,7 +901,6 @@ ${pageScreenshotPath ? `<div class="page-screenshot">
     </div>
   </div>
 
-  <!-- Module 2 -->
   <div class="module-summary-card" style="border-top-color:#7c3aed">
     <div class="ms-title" style="color:#7c3aed">${escapeHtml(lv.report.modules.m2.name)}</div>
     <div class="ms-metric">
@@ -975,7 +916,6 @@ ${pageScreenshotPath ? `<div class="page-screenshot">
     </div>
   </div>
 
-  <!-- Module 3 -->
   <div class="module-summary-card" style="border-top-color:#059669">
     <div class="ms-title" style="color:#059669">${escapeHtml(lv.report.modules.m3.name)}</div>
     <div class="ms-metric">
@@ -994,7 +934,6 @@ ${pageScreenshotPath ? `<div class="page-screenshot">
   </div>
 </div>
 
-<!-- ===== Issues ===== -->
 ${issues.length === 0
   ? `<div class="pass-message">${escapeHtml(lv.report.noIssues)}</div>`
   : issueCardsHtml}

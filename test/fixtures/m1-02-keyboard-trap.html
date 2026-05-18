@@ -1,17 +1,4 @@
-<!--
-  FIXTURE: M1-02 keyboard trap
-
-  Two buttons wired up with a keydown handler that forces focus to
-  stay bouncing between them on Tab and Shift+Tab. The script blocks
-  Tab from leaving trap-2 forward and Shift+Tab from leaving trap-1
-  backward. Escape, arrow keys, and other escape attempts also do
-  nothing, so the trap should be confirmed (not just suspected).
-
-  Expected: ≥1 M1-02 critical issue.
-
-  Pattern copied from the existing test/module1-test.html but
-  isolated so no other Module 1 checks fire spuriously.
--->
+<!-- Two buttons that trap focus between them via keydown. Expects ≥1 M1-02 critical. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -25,7 +12,6 @@
   </style>
 </head>
 <body>
-  <!-- Normal link before the trap so we have a reference tab stop -->
   <a href="#before">Link before trap</a>
 
   <div class="trap-zone">
@@ -34,7 +20,6 @@
     <button id="trap-2" type="button">Trapped button 2</button>
   </div>
 
-  <!-- Link after the trap; keyboard users can never reach it -->
   <a href="#after">Link after trap (unreachable via Tab)</a>
 
   <script>

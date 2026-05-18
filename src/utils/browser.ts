@@ -5,10 +5,6 @@ export interface BrowserContext {
   page: Page;
 }
 
-/**
- * Launch a headless Chromium browser and navigate to the given URL.
- * Returns both the browser (for cleanup) and the page (for evaluation).
- */
 export async function launchAndNavigate(url: string): Promise<BrowserContext> {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({

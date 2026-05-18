@@ -1,28 +1,9 @@
-/**
- * Batch evaluation runner.
- *
- * Reads URLs from a text file (one per line), runs the full evaluation
- * pipeline on each sequentially, and writes:
- *   - Per-site HTML + JSON reports (via runEvaluation, into output/)
- *   - An aggregate CSV summary (one row per URL)
- *
- * Usage:
- *   npx ts-node src/batch.ts <url-file> [--output <csv-path>]
- *
- * Example url-file (sites.txt):
- *   https://www.example.com
- *   https://gov.uk
- *   # Lines starting with # are skipped
- *   https://www.delfi.lv
- *
- * The CSV is written to output/batch-<timestamp>.csv by default.
- */
+// Batch runner: reads URLs from a text file, evaluates each, writes CSV summary.
+// Usage: npx ts-node src/batch.ts <url-file> [--output <csv-path>]
 
 import * as fs from "fs";
 import * as path from "path";
 import { runEvaluation, EvaluationResult } from "./evaluate";
-
-// ---- Types ----
 
 interface BatchRow {
   url: string;
@@ -41,23 +22,11 @@ interface BatchRow {
   jsonReportPath: string;
 }
 
-// ---- CSV helpers ----
-
 const CSV_COLUMNS: (keyof BatchRow)[] = [
-  "url",
-  "status",
-  "errorMessage",
-  "durationSec",
-  "totalTabStops",
-  "totalIssues",
-  "criticalCount",
-  "warningCount",
-  "moderateCount",
-  "infoCount",
-  "avgVisibilityScore",
-  "keyboardCoveragePercent",
-  "htmlReportPath",
-  "jsonReportPath",
+  "url", "status", "errorMessage", "durationSec",
+  "totalTabStops", "totalIssues", "criticalCount", "warningCount",
+  "moderateCount", "infoCount", "avgVisibilityScore",
+  "keyboardCoveragePercent", "htmlReportPath", "jsonReportPath",
 ];
 
 function escCsv(val: string | number): string {
@@ -71,8 +40,6 @@ function escCsv(val: string | number): string {
 function rowToCsv(row: BatchRow): string {
   return CSV_COLUMNS.map((col) => escCsv(row[col])).join(",");
 }
-
-// ---- Argument parsing ----
 
 function parseArgs(): { urlFile: string; csvPath: string | null } {
   const args = process.argv.slice(2);
@@ -111,8 +78,6 @@ function readUrls(filePath: string): string[] {
     .filter((line) => line.length > 0 && !line.startsWith("#"));
 }
 
-// ---- ANSI colors ----
-
 const C = {
   reset: "\x1b[0m",
   dim: "\x1b[2m",
@@ -122,8 +87,6 @@ const C = {
   yellow: "\x1b[33m",
   cyan: "\x1b[36m",
 };
-
-// ---- Main ----
 
 async function main() {
   const { urlFile, csvPath } = parseArgs();
@@ -144,8 +107,6 @@ async function main() {
   console.log();
 
   fs.mkdirSync(path.dirname(outputCsv), { recursive: true });
-
-  // Write CSV header
   fs.writeFileSync(outputCsv, CSV_COLUMNS.join(",") + "\n");
 
   const rows: BatchRow[] = [];
@@ -164,7 +125,6 @@ async function main() {
 
     try {
       const result: EvaluationResult = await runEvaluation(url, (msg) => {
-        // Show condensed progress — only module transitions and final line
         if (
           msg.startsWith("M1-01:") && msg.includes("unique") ||
           msg.startsWith("M1-02:") ||
@@ -180,20 +140,13 @@ async function main() {
       const dur = ((Date.now() - siteStart) / 1000).toFixed(1);
 
       row = {
-        url,
-        status: "success",
-        errorMessage: "",
-        durationSec: dur,
-        totalTabStops: s.totalTabStops,
-        totalIssues: s.totalIssues,
-        criticalCount: s.criticalCount,
-        warningCount: s.warningCount,
-        moderateCount: s.moderateCount,
-        infoCount: s.infoCount,
+        url, status: "success", errorMessage: "", durationSec: dur,
+        totalTabStops: s.totalTabStops, totalIssues: s.totalIssues,
+        criticalCount: s.criticalCount, warningCount: s.warningCount,
+        moderateCount: s.moderateCount, infoCount: s.infoCount,
         avgVisibilityScore: s.averageVisibilityScore,
         keyboardCoveragePercent: s.keyboardCoveragePercent,
-        htmlReportPath: result.htmlPath,
-        jsonReportPath: result.jsonPath,
+        htmlReportPath: result.htmlPath, jsonReportPath: result.jsonPath,
       };
 
       successCount++;
@@ -211,20 +164,11 @@ async function main() {
       const dur = ((Date.now() - siteStart) / 1000).toFixed(1);
 
       row = {
-        url,
-        status: "error",
-        errorMessage: msg,
-        durationSec: dur,
-        totalTabStops: 0,
-        totalIssues: 0,
-        criticalCount: 0,
-        warningCount: 0,
-        moderateCount: 0,
-        infoCount: 0,
-        avgVisibilityScore: 0,
-        keyboardCoveragePercent: 0,
-        htmlReportPath: "",
-        jsonReportPath: "",
+        url, status: "error", errorMessage: msg, durationSec: dur,
+        totalTabStops: 0, totalIssues: 0, criticalCount: 0,
+        warningCount: 0, moderateCount: 0, infoCount: 0,
+        avgVisibilityScore: 0, keyboardCoveragePercent: 0,
+        htmlReportPath: "", jsonReportPath: "",
       };
 
       errorCount++;
@@ -232,14 +176,10 @@ async function main() {
     }
 
     rows.push(row);
-
-    // Append row to CSV immediately (so partial results survive a crash)
     fs.appendFileSync(outputCsv, rowToCsv(row) + "\n");
-
     console.log();
   }
 
-  // ---- Summary ----
   const totalTime = ((Date.now() - batchStart) / 1000).toFixed(1);
 
   console.log("─".repeat(60));
@@ -250,19 +190,9 @@ async function main() {
 
   if (successCount > 0) {
     const successful = rows.filter((r) => r.status === "success");
-
-    const avgIssues = (
-      successful.reduce((sum, r) => sum + r.totalIssues, 0) / successful.length
-    ).toFixed(1);
-
-    const avgScore = (
-      successful.reduce((sum, r) => sum + r.avgVisibilityScore, 0) / successful.length
-    ).toFixed(1);
-
-    const avgCoverage = (
-      successful.reduce((sum, r) => sum + r.keyboardCoveragePercent, 0) / successful.length
-    ).toFixed(1);
-
+    const avgIssues = (successful.reduce((sum, r) => sum + r.totalIssues, 0) / successful.length).toFixed(1);
+    const avgScore = (successful.reduce((sum, r) => sum + r.avgVisibilityScore, 0) / successful.length).toFixed(1);
+    const avgCoverage = (successful.reduce((sum, r) => sum + r.keyboardCoveragePercent, 0) / successful.length).toFixed(1);
     const totalCritical = successful.reduce((sum, r) => sum + r.criticalCount, 0);
 
     console.log();

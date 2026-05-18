@@ -1,12 +1,7 @@
-/**
- * Module 3: Interactive Element Coverage
- *
- * M3-01: Pointer-Interactive vs. Keyboard-Reachable Gap
- * M3-02: Non-Semantic Interactive Element Detection
- * M3-03: Scrollable Region Keyboard Access
- *
- * Depends on Module 1's tab stop data (the "keyboard-reachable" set).
- */
+// Module 3: Interactive Element Coverage
+// M3-01: Pointer-interactive vs keyboard-reachable gap
+// M3-02: Non-semantic interactive element detection
+// M3-03: Scrollable region keyboard access
 
 import { Page, CDPSession } from "playwright";
 import {
@@ -17,8 +12,6 @@ import {
   ScrollableRegion,
 } from "../types";
 
-// ---- Configuration ----
-
 const NATIVE_INTERACTIVE_TAGS = new Set([
   "a", "button", "input", "select", "textarea", "summary", "details",
 ]);
@@ -28,11 +21,6 @@ const NON_SEMANTIC_TAGS = new Set([
   "section", "article", "header", "footer", "nav", "label",
 ]);
 
-/**
- * Extract the actual element tag from a CSS selector string.
- * For path selectors like "body > header > ul > li:nth-of-type(2)",
- * we want the LAST segment's tag, not the first.
- */
 function extractTagFromSelector(selector: string): string {
   const segments = selector.split(">").map(s => s.trim());
   const lastSegment = segments[segments.length - 1] || "";
@@ -45,8 +33,6 @@ const INTERACTIVE_ARIA_ROLES = new Set([
   "option", "switch", "checkbox", "radio", "treeitem", "gridcell",
   "slider", "spinbutton", "combobox", "searchbox", "textbox", "listbox",
 ]);
-
-// ---- Types ----
 
 interface InteractiveCandidate {
   selector: string;
@@ -62,8 +48,6 @@ interface InteractiveCandidate {
   isNonSemantic: boolean;
   isAnchorWithoutHref: boolean;
 }
-
-// ---- DOM Candidate Collection ----
 
 async function collectCandidatesFromDOM(page: Page): Promise<InteractiveCandidate[]> {
   return page.evaluate(
@@ -94,13 +78,13 @@ async function collectCandidatesFromDOM(page: Page): Promise<InteractiveCandidat
             const candidate = tag + "[" + attr + '="' + escaped + '"]';
             try {
               if (document.querySelectorAll(candidate).length === 1) return candidate;
-            } catch { /* skip */ }
+            } catch { }
           }
         }
         if (tag.includes("-")) {
           try {
             if (document.querySelectorAll(tag).length === 1) return tag;
-          } catch { /* skip */ }
+          } catch { }
         }
         const parts: string[] = [];
         let cur: Element | null = el;
@@ -150,7 +134,6 @@ async function collectCandidatesFromDOM(page: Page): Promise<InteractiveCandidat
         const isAnchorWithoutHref = tag === "a" && !el.hasAttribute("href");
         const isNonSemantic = nonSemanticTags.has(tag) || isAnchorWithoutHref;
 
-        // Skip disabled native controls
         if (isNativeInteractive) {
           const htmlEl = el as HTMLElement;
           if ("disabled" in htmlEl && (htmlEl as any).disabled) return;
@@ -187,8 +170,8 @@ async function collectCandidatesFromDOM(page: Page): Promise<InteractiveCandidat
   );
 }
 
-// ---- CDP Event Listener Detection ----
-
+// CDP event listener detection — DOM analysis alone can't find
+// dynamically attached addEventListener handlers
 async function detectEventListenersViaCDP(
   page: Page,
   candidateSelectors: string[]
@@ -260,7 +243,7 @@ async function collectNonSemanticSelectorsForCDP(page: Page): Promise<string[]> 
           const candidate = tag + "[" + attr + '="' + escaped + '"]';
           try {
             if (document.querySelectorAll(candidate).length === 1) return candidate;
-          } catch { /* skip */ }
+          } catch { }
         }
       }
       const parts: string[] = [];
@@ -303,8 +286,6 @@ async function collectNonSemanticSelectorsForCDP(page: Page): Promise<string[]> 
   }, Array.from(NON_SEMANTIC_TAGS));
 }
 
-// ---- M3-02: Non-Semantic Interactive Element Detection ----
-
 export function analyzeNonSemanticControls(
   domCandidates: InteractiveCandidate[],
   clickListeners: Set<string>,
@@ -340,8 +321,6 @@ export function analyzeNonSemanticControls(
   return results;
 }
 
-// ---- M3-03: Scrollable Region Keyboard Access ----
-
 export async function analyzeScrollableRegions(page: Page): Promise<ScrollableRegion[]> {
   return page.evaluate(() => {
     const results: ScrollableRegion[] = [];
@@ -360,7 +339,7 @@ export async function analyzeScrollableRegions(page: Page): Promise<ScrollableRe
           const candidate = tag + "[" + attr + '="' + escaped + '"]';
           try {
             if (document.querySelectorAll(candidate).length === 1) return candidate;
-          } catch { /* skip */ }
+          } catch { }
         }
       }
       const parts: string[] = [];
@@ -437,7 +416,7 @@ export async function analyzeScrollableRegions(page: Page): Promise<ScrollableRe
   });
 }
 
-// ---- Combined M3 Entry Point ----
+// ---- Combined M3 entry point ----
 
 export interface M3AnalysisResult {
   coverageGap: CoverageGap;
@@ -445,26 +424,15 @@ export interface M3AnalysisResult {
   scrollableRegions: ScrollableRegion[];
 }
 
-/**
- * Run all three Module 3 checks.
- *
- * @param page  - Playwright page
- * @param stops - Deduplicated tab stops from Module 1
- * @param extraReachableSelectors - Additional selectors known to be keyboard-reachable
- *        (e.g., from M2's independent traversal). Merged into Set A for M3-01.
- * @param onProgress - Optional progress callback
- */
 export async function analyzeInteractiveCoverage(
   page: Page,
   stops: TabStop[],
   extraReachableSelectors: string[] = [],
   onProgress?: (phase: string, detail: string) => void
 ): Promise<M3AnalysisResult> {
-  // ---- Phase 1: DOM scan (shared between M3-01 and M3-02) ----
   onProgress?.("M3-01", "scanning DOM for interactive elements");
   const domCandidates = await collectCandidatesFromDOM(page);
 
-  // ---- Phase 2: CDP event listener scan (shared between M3-01 and M3-02) ----
   onProgress?.("M3-01", "detecting event listeners via CDP");
 
   const domCandidateSelectors = domCandidates.map((c) => c.selector);
@@ -479,16 +447,15 @@ export async function analyzeInteractiveCoverage(
     allSelectorsForCDP
   );
 
-  // ---- Phase 3: M3-01 — Coverage Gap ----
+  // M3-01: build Set A (keyboard-reachable) and Set B (pointer-interactive),
+  // find elements in B but not A
   onProgress?.("M3-01", "computing coverage gap");
 
-  // Build Set A: union of M1 tab stops + M2 indicator selectors
   const reachableSelectors = new Set(stops.map((s) => s.selector));
   for (const sel of extraReachableSelectors) {
     reachableSelectors.add(sel);
   }
 
-  // Build candidate map including CDP-only discoveries
   const candidateMap = new Map<string, InteractiveCandidate>();
   for (const c of domCandidates) {
     candidateMap.set(c.selector, c);
@@ -535,10 +502,8 @@ export async function analyzeInteractiveCoverage(
     totalInteractive++;
 
     if (!reachableSelectors.has(selector)) {
-      // If the only signal is cursor:pointer (no click handler, no role,
-      // not natively interactive), it might just be a child element
-      // inheriting cursor from an interactive ancestor (e.g., <span> inside <a>).
-      // We'll check ancestry before flagging.
+      // cursor:pointer without click handler might just be inherited
+      // from an interactive ancestor (e.g. <span> inside <a>)
       const onlyCursorPointer =
         !hasClickHandler &&
         !candidate.hasInteractiveRole &&
@@ -559,9 +524,7 @@ export async function analyzeInteractiveCoverage(
     }
   }
 
-  // Batch ancestor check: for cursor:pointer-only elements, check if they
-  // sit inside an already-reachable element. If so, they inherit keyboard
-  // access from the ancestor and are not truly unreachable.
+  // Batch ancestor check for cursor:pointer-only elements
   if (pendingAncestorChecks.length > 0) {
     const reachableArray = Array.from(reachableSelectors);
     const selectorsToCheck = pendingAncestorChecks.map((p) => p.selector);
@@ -571,7 +534,7 @@ export async function analyzeInteractiveCoverage(
         const results: boolean[] = [];
         for (const sel of args.selectors) {
           let el: Element | null = null;
-          try { el = document.querySelector(sel); } catch { /* skip */ }
+          try { el = document.querySelector(sel); } catch { }
           if (!el) { results.push(false); continue; }
 
           let ancestor = el.parentElement;
@@ -580,7 +543,7 @@ export async function analyzeInteractiveCoverage(
             for (const rSel of args.reachable) {
               try {
                 if (ancestor.matches(rSel)) { found = true; break; }
-              } catch { /* invalid selector */ }
+              } catch { }
             }
             if (found) break;
             ancestor = ancestor.parentElement;
@@ -618,9 +581,7 @@ export async function analyzeInteractiveCoverage(
         : 100,
   };
 
-  // ---- Phase 4: M3-02 — Non-Semantic Controls ----
   onProgress?.("M3-02", "analyzing non-semantic interactive elements");
-
   const allCandidatesForM302 = Array.from(candidateMap.values());
   const nonSemanticControls = analyzeNonSemanticControls(
     allCandidatesForM302,
@@ -628,7 +589,6 @@ export async function analyzeInteractiveCoverage(
     keyListeners
   );
 
-  // ---- Phase 5: M3-03 — Scrollable Regions ----
   onProgress?.("M3-03", "checking scrollable regions");
   const scrollableRegions = await analyzeScrollableRegions(page);
 

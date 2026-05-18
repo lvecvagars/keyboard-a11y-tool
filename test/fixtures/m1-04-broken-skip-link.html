@@ -1,16 +1,6 @@
 <!--
-  FIXTURE: M1-04 broken skip link
-
-  A page with a skip link in the right place (first tab stop), but
-  the target ID doesn't exist in the document. The tool should
-  detect the skip link (exists: true) but report that the target
-  is unreachable (targetReachable: false).
-
-  Expected: 1 M1-04 moderate issue for the broken target.
-
-  This is distinct from the "no skip link" fixture — here a skip
-  link *is* present and detected, but pressing Enter doesn't move
-  focus anywhere meaningful because #main-content doesn't exist.
+  Skip link exists but points to #main-content which doesn't exist.
+  The actual main content has id="content". Expects 1 M1-04 moderate.
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -21,7 +11,6 @@
     body { font-family: sans-serif; padding: 24px; max-width: 600px; }
     a:focus, button:focus { outline: 3px solid #2563eb; outline-offset: 2px; }
 
-    /* Skip link hidden off-screen until focused */
     .skip-link {
       position: absolute;
       top: -40px;
@@ -40,7 +29,6 @@
   </style>
 </head>
 <body>
-  <!-- Skip link points to #main-content, but no such element exists -->
   <a href="#main-content" class="skip-link">Skip to main content</a>
 
   <nav>
@@ -51,11 +39,7 @@
     </ul>
   </nav>
 
-  <!--
-    Note: the <main> below has id="content", not id="main-content".
-    The skip link's target is missing, so activating it will not
-    move focus to the main content.
-  -->
+  <!-- id is "content", not "main-content" — skip link target is broken -->
   <main id="content">
     <h1>Main content</h1>
     <p>The skip link above points to #main-content, but that id doesn't exist here.</p>

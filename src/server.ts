@@ -1,12 +1,3 @@
-/**
- * Web server for the keyboard accessibility evaluation tool.
- *
- * Endpoints:
- *   GET  /                → serves the frontend (public/index.html)
- *   POST /api/evaluate    → starts an evaluation, streams progress via SSE
- *   GET  /output/*        → serves generated report files (HTML, JSON, PNGs)
- */
-
 import express from "express";
 import * as path from "path";
 import { runEvaluation } from "./evaluate";
@@ -15,27 +6,12 @@ import { lv } from "./i18n/lv";
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-// ---- Middleware ----
-
-// Parse JSON request bodies (for the POST endpoint)
 app.use(express.json());
-
-// Serve the frontend from public/
 app.use(express.static(path.join(__dirname, "..", "public")));
-
-// Serve generated reports (screenshots, HTML reports, etc.)
-// The output/ directory is at the project root
 app.use("/output", express.static(path.join(__dirname, "..", "output")));
 
-// ---- Track running evaluations ----
-
-// Only allow one evaluation at a time (Playwright is resource-heavy).
-// A production tool might use a job queue, but for a thesis project
-// this keeps things simple and prevents the server from running out
-// of memory by launching multiple browser instances.
+// Only one evaluation at a time (Playwright is resource-heavy)
 let isRunning = false;
-
-// ---- API ----
 
 app.post("/api/evaluate", async (req, res) => {
   const { url } = req.body;
@@ -50,19 +26,13 @@ app.post("/api/evaluate", async (req, res) => {
     return;
   }
 
-  // ---- Set up SSE ----
-  // Server-Sent Events: we keep the connection open and push text messages
-  // to the browser as the evaluation progresses. The browser uses the
-  // EventSource API to receive these.
+  // SSE: keep connection open and push progress messages as they come
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
   });
 
-  // Helper to send an SSE message.
-  // SSE format: "data: <payload>\n\n"
-  // We send JSON so the frontend can distinguish message types.
   function sendEvent(type: string, payload: Record<string, unknown>) {
     res.write(`data: ${JSON.stringify({ type, ...payload })}\n\n`);
   }
@@ -74,7 +44,6 @@ app.post("/api/evaluate", async (req, res) => {
       sendEvent("progress", { message });
     });
 
-    // Send the final result — the frontend will use htmlPath to load the report
     sendEvent("complete", {
       message: "Evaluation complete",
       htmlReportUrl: "/" + result.htmlPath.replace(/\\/g, "/"),
@@ -89,8 +58,6 @@ app.post("/api/evaluate", async (req, res) => {
     res.end();
   }
 });
-
-// ---- Start ----
 
 app.listen(PORT, () => {
   console.log(`Keyboard A11y Tool — web UI ready at http://localhost:${PORT}`);

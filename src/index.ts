@@ -1,10 +1,3 @@
-/**
- * CLI entry point.
- *
- * Now delegates to evaluate.ts for the actual evaluation logic.
- * This file just handles argument parsing and console output.
- */
-
 import { runEvaluation } from "./evaluate";
 
 async function main() {

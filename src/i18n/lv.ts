@@ -1,29 +1,14 @@
-/**
- * Latvian (lv) localization.
- *
- * Single source of truth for all user-facing strings in the frontend
- * (public/index.html) and the HTML report (reports/generator.ts).
- *
- * Terminology follows VARAM (Viedās administrācijas un reģionālās
- * attīstības ministrija) accessibility guidelines. See
- * docs/terminology.md for the full glossary and rationale.
- *
- * Not translated:
- *   - CLI output (src/index.ts) — developer-facing
- *   - Technical progress lines with check IDs (M1-01, M2-03, etc.)
- *   - Code-level identifiers: HTML tags, CSS properties, ARIA roles
- */
+// Latvian localization — all user-facing strings.
+// Technical check IDs (M1-01 etc.) and code identifiers stay in English.
 
 import { Severity } from "../types";
 
 export const lv = {
-  // ---- App metadata ----
   app: {
     title: "Tastatūras piekļūstamības izvērtētājs",
     subtitle: "Automatizēta tīmekļvietņu novērtēšana atbilstoši WCAG 2.2 — 13 pārbaudes trīs moduļos",
   },
 
-  // ---- Frontend (public/index.html) ----
   frontend: {
     urlLabel: "Tīmekļvietnes adrese izvērtējumam",
     urlPlaceholder: "https://example.com",
@@ -33,7 +18,6 @@ export const lv = {
     errorEmptyUrl: "Lūdzu, ievadiet tīmekļvietnes adresi.",
     starting: (url: string) => `Uzsāk izvērtēšanu: ${url}`,
 
-    // Result card labels
     tabStopsLabel: "TAB punkti",
     issuesLabel: "Atrastās problēmas",
     criticalLabel: "Kritiskas",
@@ -45,9 +29,6 @@ export const lv = {
     downloadJson: "Lejupielādēt JSON",
   },
 
-  // ---- Progress messages (evaluate.ts) ----
-  // Only the non-technical lines are translated. Lines with check IDs
-  // and raw numbers stay in English for terminal/log readability.
   progress: {
     launching: "Palaiž pārlūku un atver lapu...",
     capturedScreenshot: "Saglabāts tīmekļvietnes ekrānuzņēmums",
@@ -57,7 +38,6 @@ export const lv = {
       `Pabeigts! Atrastas ${issues} problēmas (no tām ${critical} kritiskas). Ilgums: ${seconds}s`,
   },
 
-  // ---- Error messages (evaluate.ts) ----
   errors: {
     emptyUrl: "Adrese ir tukša",
     invalidUrl: (raw: string) =>
@@ -78,7 +58,6 @@ export const lv = {
     evaluationFailed: (msg: string) => `Izvērtējums neizdevās: ${msg}`,
   },
 
-  // ---- HTML report ----
   report: {
     title: "Tastatūras piekļūstamības atskaite",
     generated: "Izveidota",
@@ -91,12 +70,10 @@ export const lv = {
     entirePage: "Visa lapa",
     footer: "Izveidots ar tastatūras piekļūstamības izvērtēšanas rīku · WCAG 2.2",
 
-    // Severity distribution bar
     severityBar: {
       noIssues: "Nav problēmu",
     },
 
-    // Module summary cards
     modules: {
       m1: {
         name: "TAB taustiņa secība un fokuss",
@@ -119,7 +96,6 @@ export const lv = {
       allClear: "Viss kārtībā",
     },
 
-    // Screenshot labels
     screenshots: {
       viewportLabel: "Skats, kurā redzams aizsegts fokuss",
       viewportAlt: "Skats, kurā aktīvais elements ir aizsegts ar pārklājumu",
@@ -132,12 +108,7 @@ export const lv = {
     },
   },
 
-  // ---- Severity labels ----
-  // `singular` — used as the severity badge on individual issue cards
-  //              (e.g., "Kritiska", "Brīdinājums"). Stands alone, no number.
-  // `plural`   — used when the label follows a count
-  //              (e.g., "5 kritiskas", "18 brīdinājumi"). Latvian requires
-  //              grammatical agreement with numbers.
+  // singular = badge label ("Kritiska"), plural = after count ("5 kritiskas")
   severity: {
     critical: "Kritiska",
     warning: "Brīdinājums",
@@ -152,8 +123,6 @@ export const lv = {
     info: "informācijas",
   } satisfies Record<Severity, string>,
 
-  // ---- Visibility score levels (M2-05) ----
-  // Maps the internal level codes to user-facing Latvian labels.
   scoreLevel: {
     none: "nav",
     poor: "slikts",
@@ -162,7 +131,6 @@ export const lv = {
     excellent: "izcils",
   } as Record<"none" | "poor" | "partial" | "good" | "excellent", string>,
 
-  // ---- Check names (short labels shown on issue cards) ----
   checkNames: {
     "M1-01": "TAB taustiņa secība",
     "M1-02": "Tastatūras slazds",
@@ -179,8 +147,6 @@ export const lv = {
     "M3-03": "Ritināms apgabals",
   } as Record<string, string>,
 
-  // ---- Issue descriptions (templated) ----
-  // These are called with concrete data from the evaluation.
   issues: {
     m101TraversalMismatch: (forward: number, backward: number) =>
       `Pārvietojoties uz priekšu, atrasti ${forward} unikāli TAB punkti, bet atpakaļvirzienā — ${backward}. TAB secība, iespējams, nav pilnībā apgriežama.`,
@@ -271,7 +237,6 @@ export const lv = {
     m303ScrollableInaccessibleFix:
       "Pievienojiet tabindex=\"0\" ritināmajam konteinerim, lai tastatūras lietotāji to varētu fokusēt un ritināt ar bulttaustiņiem. Pievienojiet arī atbilstošu lomu (piem., role=\"region\") un aria-label, kas apraksta saturu.",
 
-    // Non-semantic control issues — returned as separate strings and joined with "; "
     m302Issues: {
       missingTabindex: "trūkst tabindex — nav fokusējams ar tastatūru",
       missingRole: "trūkst ARIA lomas — mērķis netiek paziņots palīgtehnoloģijām",
